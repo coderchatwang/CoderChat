@@ -25,6 +25,7 @@ import { extractSearchReplaceBlocks, ExtractedSearchReplaceBlock } from '../../.
 import { IAccessibilitySignalService } from '../../../../../../../platform/accessibilitySignal/browser/accessibilitySignalService.js';
 import { IEditorProgressService } from '../../../../../../../platform/progress/common/progress.js';
 import { detectLanguage } from '../../../../common/helpers/languageHelpers.js';
+import { useVoidChatI18n } from './i18n.js';
 
 
 // type guard
@@ -356,6 +357,7 @@ type InputBox2Props = {
 }
 export const VoidInputBox2 = forwardRef<HTMLTextAreaElement, InputBox2Props>(function X({ initValue, placeholder, multiline, enableAtToMention, fnsRef, className, onKeyDown, onFocus, onBlur, onChangeText }, ref) {
 
+	const t = useVoidChatI18n()
 
 	// mirrors whatever is in ref
 	const accessor = useAccessor()
@@ -830,7 +832,7 @@ export const VoidInputBox2 = forwardRef<HTMLTextAreaElement, InputBox2Props>(fun
 							))} */}
 							<span>{optionText}</span>
 						</div>
-						: <div className='opacity-50'>Enter text to filter...</div>
+						: <div className='opacity-50'>{t.enterTextToFilter()}</div>
 					}
 				</div>}
 
@@ -839,7 +841,7 @@ export const VoidInputBox2 = forwardRef<HTMLTextAreaElement, InputBox2Props>(fun
 				<div className='max-h-[400px] w-full max-w-full overflow-y-auto overflow-x-auto'>
 					<div className="w-max min-w-full flex flex-col gap-0 text-nowrap flex-nowrap">
 						{options.length === 0 ?
-							<div className="text-void-fg-3 px-3 py-0.5">No results found</div>
+							<div className="text-void-fg-3 px-3 py-0.5">{t.noResultsFound()}</div>
 							: options.map((o, oIdx) => {
 
 								return (
@@ -1961,6 +1963,7 @@ const SingleDiffEditor = ({ block, lang }: { block: ExtractedSearchReplaceBlock,
  *   - language?: string (optional, fallback to 'plaintext')
  */
 export const VoidDiffEditor = ({ uri, searchReplaceBlocks, language }: { uri?: any, searchReplaceBlocks: string, language?: string }) => {
+	const t = useVoidChatI18n()
 	const accessor = useAccessor();
 	const languageService = accessor.get('ILanguageService');
 
@@ -1975,7 +1978,7 @@ export const VoidDiffEditor = ({ uri, searchReplaceBlocks, language }: { uri?: a
 
 	// If no blocks, show empty state
 	if (blocks.length === 0) {
-		return <div className="w-full p-4 text-void-fg-4 text-sm">No changes found</div>;
+		return <div className="w-full p-4 text-void-fg-4 text-sm">{t.noChangesFound()}</div>;
 	}
 
 	// Display all blocks

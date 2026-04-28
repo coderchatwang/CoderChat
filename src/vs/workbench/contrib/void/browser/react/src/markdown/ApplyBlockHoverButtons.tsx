@@ -12,6 +12,7 @@ import { FileSymlink, LucideIcon, RotateCw, Terminal } from 'lucide-react'
 import { Check, X, Square, Copy, Play, } from 'lucide-react'
 import { getBasename, ListableToolItem, voidOpenFileFn, ToolChildrenWrapper } from '../sidebar-tsx/SidebarChat.js'
 import { PlacesType, VariantType } from 'react-tooltip'
+import { useVoidChatI18n } from '../util/i18n.js'
 
 enum CopyButtonText {
 	Idle = 'Copy',
@@ -102,6 +103,7 @@ export const CopyButton = ({ codeStr, toolTipName }: { codeStr: string | (() => 
 
 
 export const JumpToFileButton = ({ uri, ...props }: { uri: URI | 'current' } & React.ButtonHTMLAttributes<HTMLButtonElement>) => {
+	const t = useVoidChatI18n()
 	const accessor = useAccessor()
 	const commandService = accessor.get('ICommandService')
 
@@ -111,7 +113,7 @@ export const JumpToFileButton = ({ uri, ...props }: { uri: URI | 'current' } & R
 			onClick={() => {
 				voidOpenFileFn(uri, accessor)
 			}}
-			{...tooltipPropsForApplyBlock({ tooltipName: 'Go to file' })}
+			{...tooltipPropsForApplyBlock({ tooltipName: t.goToFile() })}
 			{...props}
 		/>
 	)
@@ -210,6 +212,7 @@ export const useEditToolStreamState = ({ applyBoxId, uri }: { applyBoxId: string
 }
 
 export const StatusIndicatorForApplyButton = ({ applyBoxId, uri }: { applyBoxId: string, uri: URI | 'current' } & React.HTMLAttributes<HTMLDivElement>) => {
+	const t = useVoidChatI18n()
 
 	const { currStreamStateRef } = useApplyStreamState({ applyBoxId })
 	const currStreamState = currStreamStateRef.current
@@ -223,9 +226,9 @@ export const StatusIndicatorForApplyButton = ({ applyBoxId, uri }: { applyBoxId:
 	)
 
 	const tooltipName = (
-		currStreamState === 'idle-no-changes' ? 'Done' :
-			currStreamState === 'streaming' ? 'Applying' :
-				currStreamState === 'idle-has-changes' ? 'Done' : // also 'Done'? 'Applied' looked bad
+		currStreamState === 'idle-no-changes' ? t.done() :
+			currStreamState === 'streaming' ? t.applying() :
+				currStreamState === 'idle-has-changes' ? t.done() : // also 'Done'? 'Applied' looked bad
 					''
 	)
 
@@ -265,6 +268,7 @@ const ApplyButtonsForTerminal = ({
 	language?: string,
 	uri: URI | 'current';
 }) => {
+	const t = useVoidChatI18n()
 	const accessor = useAccessor()
 	const metricsService = accessor.get('IMetricsService')
 	const terminalToolService = accessor.get('ITerminalToolService')
@@ -300,7 +304,7 @@ const ApplyButtonsForTerminal = ({
 					interruptToolRef.current?.();
 					setIsShellRunning(false);
 				}}
-				{...tooltipPropsForApplyBlock({ tooltipName: 'Stop' })}
+				{...tooltipPropsForApplyBlock({ tooltipName: t.stop() })}
 			/>
 		);
 	}
@@ -310,7 +314,7 @@ const ApplyButtonsForTerminal = ({
 	return <IconShell1
 		Icon={Play}
 		onClick={onClickSubmit}
-		{...tooltipPropsForApplyBlock({ tooltipName: 'Apply' })}
+		{...tooltipPropsForApplyBlock({ tooltipName: t.applyAction() })}
 	/>
 }
 
@@ -327,6 +331,7 @@ const ApplyButtonsForEdit = ({
 	language?: string,
 	uri: URI | 'current';
 }) => {
+	const t = useVoidChatI18n()
 	const accessor = useAccessor()
 	const editCodeService = accessor.get('IEditCodeService')
 	const metricsService = accessor.get('IMetricsService')
@@ -351,14 +356,14 @@ const ApplyButtonsForEdit = ({
 		setApplying(newApplyingUri)
 
 		if (!applyDonePromise) {
-			notificationService.info(`Void Error: We couldn't run Apply here. ${uri === 'current' ? 'This Apply block wants to run on the current file, but you might not have a file open.' : `This Apply block wants to run on ${uri.fsPath}, but it might not exist.`}`)
+			notificationService.info(`CoderChat Error: We couldn't run Apply here. ${uri === 'current' ? 'This Apply block wants to run on the current file, but you might not have a file open.' : `This Apply block wants to run on ${uri.fsPath}, but it might not exist.`}`)
 		}
 
 		// catch any errors by interrupting the stream
 		applyDonePromise?.catch(e => {
 			const uri = getUriBeingApplied(applyBoxId)
 			if (uri) editCodeService.interruptURIStreaming({ uri: uri })
-			notificationService.info(`Void Error: There was a problem running Apply: ${e}.`)
+			notificationService.info(`CoderChat Error: There was a problem running Apply: ${e}.`)
 
 		})
 		metricsService.capture('Apply Code', { length: codeStr.length }) // capture the length only
@@ -390,7 +395,7 @@ const ApplyButtonsForEdit = ({
 		return <IconShell1
 			Icon={Square}
 			onClick={onClickStop}
-			{...tooltipPropsForApplyBlock({ tooltipName: 'Stop' })}
+			{...tooltipPropsForApplyBlock({ tooltipName: t.stop() })}
 		/>
 	}
 	if (isDisabled) {
@@ -400,7 +405,7 @@ const ApplyButtonsForEdit = ({
 		return <IconShell1
 			Icon={Play}
 			onClick={onClickSubmit}
-			{...tooltipPropsForApplyBlock({ tooltipName: 'Apply' })}
+			{...tooltipPropsForApplyBlock({ tooltipName: t.applyAction() })}
 		/>
 	}
 	if (currStreamState === 'idle-has-changes') {
@@ -408,12 +413,12 @@ const ApplyButtonsForEdit = ({
 			<IconShell1
 				Icon={X}
 				onClick={onReject}
-				{...tooltipPropsForApplyBlock({ tooltipName: 'Remove' })}
+				{...tooltipPropsForApplyBlock({ tooltipName: t.remove() })}
 			/>
 			<IconShell1
 				Icon={Check}
 				onClick={onAccept}
-				{...tooltipPropsForApplyBlock({ tooltipName: 'Keep' })}
+				{...tooltipPropsForApplyBlock({ tooltipName: t.keep() })}
 			/>
 		</Fragment>
 	}
@@ -459,6 +464,7 @@ export const EditToolAcceptRejectButtonsHTML = ({
 	threadId: string,
 })
 ) => {
+	const t = useVoidChatI18n()
 	const accessor = useAccessor()
 	const editCodeService = accessor.get('IEditCodeService')
 	const metricsService = accessor.get('IMetricsService')
@@ -492,12 +498,12 @@ export const EditToolAcceptRejectButtonsHTML = ({
 			<IconShell1
 				Icon={X}
 				onClick={onReject}
-				{...tooltipPropsForApplyBlock({ tooltipName: 'Remove' })}
+				{...tooltipPropsForApplyBlock({ tooltipName: t.remove() })}
 			/>
 			<IconShell1
 				Icon={Check}
 				onClick={onAccept}
-				{...tooltipPropsForApplyBlock({ tooltipName: 'Keep' })}
+				{...tooltipPropsForApplyBlock({ tooltipName: t.keep() })}
 			/>
 		</>
 	}

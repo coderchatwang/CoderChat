@@ -15,6 +15,7 @@ import { separateOutFirstLine } from '../../../../common/helpers/util.js'
 import { BlockCode } from '../util/inputs.js'
 import { CodespanLocationLink } from '../../../../common/chatThreadServiceTypes.js'
 import { getBasename, getRelative, voidOpenFileFn } from '../sidebar-tsx/SidebarChat.js'
+import { useVoidChatI18n } from '../util/i18n.js'
 
 
 export type ChatMessageLocation = {
@@ -269,6 +270,7 @@ export type RenderTokenOptions = { isApplyEnabled?: boolean, isLinkDetectionEnab
 const RenderToken = ({ token, inPTag, codeURI, chatMessageLocation, tokenIdx, ...options }: { token: Token | string, inPTag?: boolean, codeURI?: URI, chatMessageLocation?: ChatMessageLocation, tokenIdx: string, } & RenderTokenOptions): React.ReactNode => {
 	const accessor = useAccessor()
 	const languageService = accessor.get('ILanguageService')
+	const i18n = useVoidChatI18n()
 
 	// deal with built-in tokens first (assume marked token)
 	const t = token as MarkedToken
@@ -537,7 +539,7 @@ const RenderToken = ({ token, inPTag, codeURI, chatMessageLocation, tokenIdx, ..
 	// default
 	return (
 		<div className='bg-orange-50 rounded-sm overflow-hidden p-2'>
-			<span className='text-sm text-orange-500'>Unknown token rendered...</span>
+			<span className='text-sm text-orange-500'>{i18n.unknownTokenRendered()}</span>
 		</div>
 	)
 }

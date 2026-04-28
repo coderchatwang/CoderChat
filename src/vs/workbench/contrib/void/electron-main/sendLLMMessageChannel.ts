@@ -8,10 +8,11 @@
 
 import { IServerChannel } from '../../../../base/parts/ipc/common/ipc.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
-import { EventLLMMessageOnTextParams, EventLLMMessageOnErrorParams, EventLLMMessageOnFinalMessageParams, MainSendLLMMessageParams, AbortRef, SendLLMMessageParams, MainLLMMessageAbortParams, ModelListParams, EventModelListOnSuccessParams, EventModelListOnErrorParams, OllamaModelResponse, OpenaiCompatibleModelResponse, MainModelListParams, } from '../common/sendLLMMessageTypes.js';
+import { EventLLMMessageOnTextParams, EventLLMMessageOnErrorParams, EventLLMMessageOnFinalMessageParams, EventLLMMessageOnOptionsCreatedParams, MainSendLLMMessageParams, AbortRef, SendLLMMessageParams, MainLLMMessageAbortParams, ModelListParams, EventModelListOnSuccessParams, EventModelListOnErrorParams, OllamaModelResponse, OpenaiCompatibleModelResponse, MainModelListParams, ProxyConfig, } from '../common/sendLLMMessageTypes.js';
 import { sendLLMMessage } from './llmMessage/sendLLMMessage.js'
 import { IMetricsService } from '../common/metricsService.js';
 import { sendLLMMessageToProviderImplementation } from './llmMessage/sendLLMMessage.impl.js';
+import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 
 // NODE IMPLEMENTATION - calls actual sendLLMMessage() and returns listeners to it
 
@@ -22,6 +23,7 @@ export class LLMMessageChannel implements IServerChannel {
 		onText: new Emitter<EventLLMMessageOnTextParams>(),
 		onFinalMessage: new Emitter<EventLLMMessageOnFinalMessageParams>(),
 		onError: new Emitter<EventLLMMessageOnErrorParams>(),
+		onOptionsCreated: new Emitter<EventLLMMessageOnOptionsCreatedParams>(),
 	}
 
 	// aborters for above
@@ -48,7 +50,19 @@ export class LLMMessageChannel implements IServerChannel {
 	// stupidly, channels can't take in @IService
 	constructor(
 		private readonly metricsService: IMetricsService,
+		private readonly configurationService: IConfigurationService,
 	) { }
+
+	// Get proxy configuration from VSCode settings
+	private getProxyConfig(): ProxyConfig {
+		const proxyUrl = this.configurationService.getValue<string>('http.proxy');
+		const proxyStrictSSL = this.configurationService.getValue<boolean>('http.proxyStrictSSL');
+
+		return {
+			proxyUrl: proxyUrl || undefined,
+			proxyStrictSSL: proxyStrictSSL !== false, // default is true
+		};
+	}
 
 	// browser uses this to listen for changes
 	listen(_: unknown, event: string): Event<any> {
@@ -56,6 +70,7 @@ export class LLMMessageChannel implements IServerChannel {
 		if (event === 'onText_sendLLMMessage') return this.llmMessageEmitters.onText.event;
 		else if (event === 'onFinalMessage_sendLLMMessage') return this.llmMessageEmitters.onFinalMessage.event;
 		else if (event === 'onError_sendLLMMessage') return this.llmMessageEmitters.onError.event;
+		else if (event === 'onOptionsCreated_sendLLMMessage') return this.llmMessageEmitters.onOptionsCreated.event;
 		// list
 		else if (event === 'onSuccess_list_ollama') return this.listEmitters.ollama.success.event;
 		else if (event === 'onError_list_ollama') return this.listEmitters.ollama.error.event;
@@ -96,8 +111,11 @@ export class LLMMessageChannel implements IServerChannel {
 		if (!(requestId in this._infoOfRunningRequest))
 			this._infoOfRunningRequest[requestId] = { waitForSend: undefined, abortRef: { current: null } }
 
+		const proxyConfig = this.getProxyConfig();
+
 		const mainThreadParams: SendLLMMessageParams = {
 			...params,
+			proxyConfig,
 			onText: (p) => {
 				this.llmMessageEmitters.onText.fire({ requestId, ...p });
 			},
@@ -107,6 +125,9 @@ export class LLMMessageChannel implements IServerChannel {
 			onError: (p) => {
 				console.log('sendLLM: firing err');
 				this.llmMessageEmitters.onError.fire({ requestId, ...p });
+			},
+			onOptionsCreated: (p) => {
+				this.llmMessageEmitters.onOptionsCreated.fire({ requestId, ...p });
 			},
 			abortRef: this._infoOfRunningRequest[requestId].abortRef,
 		}
@@ -130,8 +151,10 @@ export class LLMMessageChannel implements IServerChannel {
 	_callOllamaList = (params: MainModelListParams<OllamaModelResponse>) => {
 		const { requestId } = params
 		const emitters = this.listEmitters.ollama
+		const proxyConfig = this.getProxyConfig();
 		const mainThreadParams: ModelListParams<OllamaModelResponse> = {
 			...params,
+			proxyConfig,
 			onSuccess: (p) => { emitters.success.fire({ requestId, ...p }); },
 			onError: (p) => { emitters.error.fire({ requestId, ...p }); },
 		}
@@ -141,8 +164,10 @@ export class LLMMessageChannel implements IServerChannel {
 	_callOpenAICompatibleList = (params: MainModelListParams<OpenaiCompatibleModelResponse>) => {
 		const { requestId, providerName } = params
 		const emitters = this.listEmitters.openaiCompat
+		const proxyConfig = this.getProxyConfig();
 		const mainThreadParams: ModelListParams<OpenaiCompatibleModelResponse> = {
 			...params,
+			proxyConfig,
 			onSuccess: (p) => { emitters.success.fire({ requestId, ...p }); },
 			onError: (p) => { emitters.error.fire({ requestId, ...p }); },
 		}

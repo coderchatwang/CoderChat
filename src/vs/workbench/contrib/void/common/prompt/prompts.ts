@@ -3,6 +3,17 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
  *--------------------------------------------------------------------------------------*/
 
+/**
+ * 提示词配置文件
+ *
+ * 本文件包含 Void 编辑器所有 AI 功能的提示词模板和配置。
+ * 文件结构：
+ *   1. 可配置常量区 - 所有提示词和限制值都在这里定义，方便调整
+ *   2. 类型定义区 - TypeScript 类型定义
+ *   3. 工具配置区 - 内置工具的定义
+ *   4. 核心函数区 - 生成各种提示词消息的函数
+ */
+
 import { URI } from '../../../../../base/common/uri.js';
 import { IFileService } from '../../../../../platform/files/common/files.js';
 import { IDirectoryStrService } from '../directoryStrService.js';
@@ -12,35 +23,54 @@ import { RawToolParamsObj } from '../sendLLMMessageTypes.js';
 import { approvalTypeOfBuiltinToolName, BuiltinToolCallParams, BuiltinToolName, BuiltinToolResultType, ToolName } from '../toolsServiceTypes.js';
 import { ChatMode } from '../voidSettingsTypes.js';
 
-// Triple backtick wrapper used throughout the prompts for code blocks
+// 代码块的三反引号标记
 export const tripleTick = ['```', '```']
 
-// Maximum limits for directory structure information
+/** 搜索替换块的原始代码开始标记 */
+export const ORIGINAL = `<<<<<<< ORIGINAL`
+/** 搜索替换块的分隔符 */
+export const DIVIDER = `=======`
+/** 搜索替换块的更新代码结束标记 */
+export const FINAL = `>>>>>>> UPDATED`
+
+// ----------------------------------------------------------------------------
+// 限制常量
+// ----------------------------------------------------------------------------
+
+/** 目录结构信息的最大字符数（初始阶段） */
 export const MAX_DIRSTR_CHARS_TOTAL_BEGINNING = 20_000
+/** 目录结构信息的最大字符数（工具调用阶段） */
 export const MAX_DIRSTR_CHARS_TOTAL_TOOL = 20_000
+/** 目录结构信息的最大结果数（初始阶段） */
 export const MAX_DIRSTR_RESULTS_TOTAL_BEGINNING = 100
+/** 目录结构信息的最大结果数（工具调用阶段） */
 export const MAX_DIRSTR_RESULTS_TOTAL_TOOL = 100
 
-// tool info
+/** 文件读取的最大字符数（每页） */
 export const MAX_FILE_CHARS_PAGE = 500_000
+/** 子 URI 的最大数量（每页） */
 export const MAX_CHILDREN_URIs_PAGE = 500
 
-// terminal tool info
+/** 终端输出的最大字符数 */
 export const MAX_TERMINAL_CHARS = 100_000
+/** 终端无活动超时时间（秒） */
 export const MAX_TERMINAL_INACTIVE_TIME = 8 // seconds
+/** 后台命令返回结果时间（秒） */
 export const MAX_TERMINAL_BG_COMMAND_TIME = 5
 
 
-// Maximum character limits for prefix and suffix context
+/** 前缀/后缀上下文的最大字符数 */
 export const MAX_PREFIX_SUFFIX_CHARS = 20_000
 
-
-export const ORIGINAL = `<<<<<<< ORIGINAL`
-export const DIVIDER = `=======`
-export const FINAL = `>>>>>>> UPDATED`
+/** 默认文件大小限制 */
+export const DEFAULT_FILE_SIZE_LIMIT = 2_000_000
 
 
+// ----------------------------------------------------------------------------
+// 搜索替换块相关提示词
+// ----------------------------------------------------------------------------
 
+/** 搜索替换块的模板格式 */
 const searchReplaceBlockTemplate = `\
 ${ORIGINAL}
 // ... original code goes here
@@ -55,8 +85,28 @@ ${DIVIDER}
 ${FINAL}`
 
 
+/** 搜索替换工具的描述提示词 */
+const replaceTool_description = `\
+A string of SEARCH/REPLACE block(s) which will be applied to the given file.
+Your SEARCH/REPLACE blocks string must be formatted as follows:
+${searchReplaceBlockTemplate}
 
+## Guidelines:
 
+1. You may output multiple search replace blocks if needed.
+
+2. The ORIGINAL code in each SEARCH/REPLACE block must EXACTLY match lines in the original file. Do not add or remove any whitespace or comments from the original code.
+
+3. Each ORIGINAL text must be large enough to uniquely identify the change. However, bias towards writing as little as possible.
+
+4. Each ORIGINAL text must be DISJOINT from all other ORIGINAL text.
+
+5. This field is a STRING (not an array).`
+
+// ----------------------------------------------------------------------------
+// 创建搜索替换块的系统消息提示词
+// ----------------------------------------------------------------------------
+/** 创建搜索替换块的系统消息 */
 const createSearchReplaceBlocks_systemMessage = `\
 You are a coding assistant that takes in a diff, and outputs SEARCH/REPLACE code blocks to implement the change(s) in the diff.
 The diff will be labeled \`DIFF\` and the original file will be labeled \`ORIGINAL_FILE\`.
@@ -105,28 +155,10 @@ let x = 6.5
 ${FINAL}
 ${tripleTick[1]}`
 
-
-const replaceTool_description = `\
-A string of SEARCH/REPLACE block(s) which will be applied to the given file.
-Your SEARCH/REPLACE blocks string must be formatted as follows:
-${searchReplaceBlockTemplate}
-
-## Guidelines:
-
-1. You may output multiple search replace blocks if needed.
-
-2. The ORIGINAL code in each SEARCH/REPLACE block must EXACTLY match lines in the original file. Do not add or remove any whitespace or comments from the original code.
-
-3. Each ORIGINAL text must be large enough to uniquely identify the change. However, bias towards writing as little as possible.
-
-4. Each ORIGINAL text must be DISJOINT from all other ORIGINAL text.
-
-5. This field is a STRING (not an array).`
-
-
-// ======================================================== tools ========================================================
-
-
+// ----------------------------------------------------------------------------
+// 聊天建议差异示例
+// ----------------------------------------------------------------------------
+/** 聊天建议的差异示例格式 */
 const chatSuggestionDiffExample = `\
 ${tripleTick[0]}typescript
 /Users/username/Dekstop/my_project/app.ts
@@ -140,7 +172,92 @@ ${tripleTick[0]}typescript
 ${tripleTick[1]}`
 
 
+// ----------------------------------------------------------------------------
+// 终端相关提示词
+// ----------------------------------------------------------------------------
 
+/** 终端描述辅助文本 */
+const terminalDescHelper = `You can use this tool to run any command: sed, grep, etc. Do not edit any files with this tool; use edit_file instead. When working with git and other tools that open an editor (e.g. git diff), you should pipe to cat to get all results and not get stuck in vim.`
+
+/** 当前工作目录描述 */
+const cwdHelper = 'Optional. The directory in which to run the command. Defaults to the first workspace folder.'
+
+// ----------------------------------------------------------------------------
+// 重写代码的提示词
+// ----------------------------------------------------------------------------
+
+/** 重写代码的系统消息 */
+export const rewriteCode_systemMessage = `\
+You are a coding assistant that re-writes an entire file to make a change. You are given the original file \`ORIGINAL_FILE\` and a change \`CHANGE\`.
+
+Directions:
+1. Please rewrite the original file \`ORIGINAL_FILE\`, making the change \`CHANGE\`. You must completely re-write the whole file.
+2. Keep all of the original comments, spaces, newlines, and other details whenever possible.
+3. ONLY output the full new file. Do not add any other explanations or text.
+`
+
+// ----------------------------------------------------------------------------
+// Git 提交消息的提示词
+// ----------------------------------------------------------------------------
+
+/** Git 提交消息的系统消息 */
+export const gitCommitMessage_systemMessage = `
+You are an expert software engineer AI assistant responsible for writing clear and concise Git commit messages that summarize the **purpose** and **intent** of the change. Try to keep your commit messages to one sentence. If necessary, you can use two sentences.
+
+You always respond with:
+- The commit message wrapped in <output> tags
+- A brief explanation of the reasoning behind the message, wrapped in <reasoning> tags
+
+Example format:
+<output>Fix login bug and improve error handling</output>
+<reasoning>This commit updates the login handler to fix a redirect issue and improves frontend error messages for failed logins.</reasoning>
+
+Do not include anything else outside of these tags.
+Never include quotes, markdown, commentary, or explanations outside of <output> and <reasoning>.`.trim()
+
+
+// ----------------------------------------------------------------------------
+// Ctrl+K 快速编辑（FIM）提示词配置
+// ----------------------------------------------------------------------------
+
+/** FIM（填充中间）标签类型 */
+export type QuickEditFimTagsType = {
+	preTag: string,
+	sufTag: string,
+	midTag: string
+}
+
+/** 默认的 FIM 标签 */
+export const defaultQuickEditFimTags: QuickEditFimTagsType = {
+	preTag: 'ABOVE',
+	sufTag: 'BELOW',
+	midTag: 'SELECTION',
+}
+
+/** FIM 系统消息模板 */
+export const ctrlKStream_systemMessage = ({ quickEditFIMTags: { preTag, midTag, sufTag } }: { quickEditFIMTags: QuickEditFimTagsType }) => {
+	return `\
+You are a FIM (fill-in-the-middle) coding assistant. Your task is to fill in the middle SELECTION marked by <${midTag}> tags.
+
+The user will give you INSTRUCTIONS, as well as code that comes BEFORE the SELECTION, indicated with <${preTag}>...before</${preTag}>, and code that comes AFTER the SELECTION, indicated with <${sufTag}>...after</${sufTag}>.
+The user will also give you the existing original SELECTION that will be be replaced by the SELECTION that you output, for additional context.
+
+Instructions:
+1. Your OUTPUT should be a SINGLE PIECE OF CODE of the form <${midTag}>...new_code</${midTag}>. Do NOT output any text or explanations before or after this.
+2. You may ONLY CHANGE the original SELECTION, and NOT the content in the <${preTag}>...</${preTag}> or <${sufTag}>...</${sufTag}> tags.
+3. Make sure all brackets in the new selection are balanced the same as in the original selection.
+4. Be careful not to duplicate or remove variables, comments, or other syntax by mistake.
+`
+}
+
+
+// ============================================================================
+//                          第二部分：类型定义区
+// ============================================================================
+
+/**
+ * 内部工具信息类型
+ */
 export type InternalToolInfo = {
 	name: string,
 	description: string,
@@ -152,21 +269,10 @@ export type InternalToolInfo = {
 }
 
 
-
-const uriParam = (object: string) => ({
-	uri: { description: `The FULL path to the ${object}.` }
-})
-
-const paginationParam = {
-	page_number: { description: 'Optional. The page number of the result. Default is 1.' }
-} as const
-
-
-
-const terminalDescHelper = `You can use this tool to run any command: sed, grep, etc. Do not edit any files with this tool; use edit_file instead. When working with git and other tools that open an editor (e.g. git diff), you should pipe to cat to get all results and not get stuck in vim.`
-
-const cwdHelper = 'Optional. The directory in which to run the command. Defaults to the first workspace folder.'
-
+/**
+ * 将驼峰命名转换为蛇形命名
+ * 例如：'rootURI' -> 'root_uri'
+ */
 export type SnakeCase<S extends string> =
 	// exact acronym URI
 	S extends 'URI' ? 'uri'
@@ -177,12 +283,35 @@ export type SnakeCase<S extends string> =
 	? `${C extends Lowercase<C> ? C : `_${Lowercase<C>}`}${SnakeCase<Rest>}`
 	: S;
 
+/**
+ * 将对象键转换为蛇形命名
+ */
 export type SnakeCaseKeys<T extends Record<string, any>> = {
 	[K in keyof T as SnakeCase<Extract<K, string>>]: T[K]
 };
 
 
+// ============================================================================
+//                          第三部分：工具配置区
+// ============================================================================
 
+/**
+ * 创建 URI 参数描述
+ * @param object - 对象类型描述（如 'file', 'folder'）
+ */
+const uriParam = (object: string) => ({
+	uri: { description: `The FULL path to the ${object}.` }
+})
+
+/** 分页参数 */
+const paginationParam = {
+	page_number: { description: 'Optional. The page number of the result. Default is 1.' }
+} as const
+
+/**
+ * 内置工具定义
+ * 每个工具包含名称、描述和参数定义
+ */
 export const builtinTools: {
 	[T in keyof BuiltinToolCallParams]: {
 		name: string;
@@ -193,7 +322,7 @@ export const builtinTools: {
 } = {
 	// --- context-gathering (read/search/list) ---
 
-	read_file: {
+	read_file: {//1
 		name: 'read_file',
 		description: `Returns full contents of a given file.`,
 		params: {
@@ -204,7 +333,7 @@ export const builtinTools: {
 		},
 	},
 
-	ls_dir: {
+	ls_dir: {//2
 		name: 'ls_dir',
 		description: `Lists all files and folders in the given URI.`,
 		params: {
@@ -213,7 +342,7 @@ export const builtinTools: {
 		},
 	},
 
-	get_dir_tree: {
+	get_dir_tree: {//3
 		name: 'get_dir_tree',
 		description: `This is a very effective way to learn about the user's codebase. Returns a tree diagram of all the files and folders in the given folder. `,
 		params: {
@@ -225,7 +354,7 @@ export const builtinTools: {
 	// 	name: 'pathname_search',
 	// 	description: `Returns all pathnames that match a given \`find\`-style query over the entire workspace. ONLY searches file names. ONLY searches the current workspace. You should use this when looking for a file with a specific name or path. ${paginationHelper.desc}`,
 
-	search_pathnames_only: {
+	search_pathnames_only: {//4
 		name: 'search_pathnames_only',
 		description: `Returns all pathnames that match a given query (searches ONLY file names). You should use this when looking for a file with a specific name or path.`,
 		params: {
@@ -237,7 +366,7 @@ export const builtinTools: {
 
 
 
-	search_for_files: {
+	search_for_files: {//5
 		name: 'search_for_files',
 		description: `Returns a list of file names whose content matches the given query. The query can be any substring or regex.`,
 		params: {
@@ -249,7 +378,7 @@ export const builtinTools: {
 	},
 
 	// add new search_in_file tool
-	search_in_file: {
+	search_in_file: {//6
 		name: 'search_in_file',
 		description: `Returns an array of all the start line numbers where the content appears in the file.`,
 		params: {
@@ -259,7 +388,7 @@ export const builtinTools: {
 		}
 	},
 
-	read_lint_errors: {
+	read_lint_errors: {//7
 		name: 'read_lint_errors',
 		description: `Use this tool to view all the lint errors on a file.`,
 		params: {
@@ -269,7 +398,7 @@ export const builtinTools: {
 
 	// --- editing (create/delete) ---
 
-	create_file_or_folder: {
+	create_file_or_folder: {//8
 		name: 'create_file_or_folder',
 		description: `Create a file or folder at the given path. To create a folder, the path MUST end with a trailing slash.`,
 		params: {
@@ -277,7 +406,7 @@ export const builtinTools: {
 		},
 	},
 
-	delete_file_or_folder: {
+	delete_file_or_folder: {//9
 		name: 'delete_file_or_folder',
 		description: `Delete a file or folder at the given path.`,
 		params: {
@@ -286,7 +415,7 @@ export const builtinTools: {
 		},
 	},
 
-	edit_file: {
+	edit_file: {//10
 		name: 'edit_file',
 		description: `Edit the contents of a file. You must provide the file's URI as well as a SINGLE string of SEARCH/REPLACE block(s) that will be used to apply the edit.`,
 		params: {
@@ -295,7 +424,7 @@ export const builtinTools: {
 		},
 	},
 
-	rewrite_file: {
+	rewrite_file: {//11
 		name: 'rewrite_file',
 		description: `Edits a file, deleting all the old contents and replacing them with your new contents. Use this tool if you want to edit a file you just created.`,
 		params: {
@@ -303,7 +432,8 @@ export const builtinTools: {
 			new_content: { description: `The new contents of the file. Must be a string.` }
 		},
 	},
-	run_command: {
+
+	run_command: {//12
 		name: 'run_command',
 		description: `Runs a terminal command and waits for the result (times out after ${MAX_TERMINAL_INACTIVE_TIME}s of inactivity). ${terminalDescHelper}`,
 		params: {
@@ -312,7 +442,7 @@ export const builtinTools: {
 		},
 	},
 
-	run_persistent_command: {
+	run_persistent_command: {//13
 		name: 'run_persistent_command',
 		description: `Runs a terminal command in the persistent terminal that you created with open_persistent_terminal (results after ${MAX_TERMINAL_BG_COMMAND_TIME} are returned, and command continues running in background). ${terminalDescHelper}`,
 		params: {
@@ -323,7 +453,7 @@ export const builtinTools: {
 
 
 
-	open_persistent_terminal: {
+	open_persistent_terminal: {//14
 		name: 'open_persistent_terminal',
 		description: `Use this tool when you want to run a terminal command indefinitely, like a dev server (eg \`npm run dev\`), a background listener, etc. Opens a new terminal in the user's environment which will not awaited for or killed.`,
 		params: {
@@ -332,13 +462,29 @@ export const builtinTools: {
 	},
 
 
-	kill_persistent_terminal: {
+	kill_persistent_terminal: {//15
 		name: 'kill_persistent_terminal',
 		description: `Interrupts and closes a persistent terminal that you opened with open_persistent_terminal.`,
 		params: { persistent_terminal_id: { description: `The ID of the persistent terminal.` } }
+	},
+
+	xml_escape: {//16
+		name: 'xml_escape',
+		description: `Automatically escapes special characters in XML/HTML files to make them valid. This tool intelligently detects which characters need escaping based on their context. Use this when working with XML or HTML files that contain special characters like <, >, &, ", or ' that need to be properly escaped.`,
+		params: {
+			...uriParam('file'),
+			escape_all: { description: 'Optional. If true, escapes all special characters. If false (default), only escapes characters in text content, preserving XML/HTML tags.' }
+		}
+	},
+
+	ask_user_question: {//17
+		name: 'ask_user_question',
+		description: `Use this tool when you need to ask the user questions during execution. This allows you to gather user preferences or requirements, clarify ambiguous instructions, get decisions on implementation choices, or offer choices to the user about what direction to take. Users will always be able to select "Other" to provide custom text input.`,
+		params: {
+			questions: { description: 'Questions to ask the user (1-4 questions). Each question should have a question text, a short header, options array with 2-4 choices, and multiSelect boolean.' },
+			answers: { description: 'User answers collected by the permission component. This is an object mapping question headers to selected option labels or arrays of labels for multiSelect.' }
+		}
 	}
-
-
 	// go_to_definition
 	// go_to_usages
 
@@ -346,18 +492,31 @@ export const builtinTools: {
 
 
 
-
+/** 内置工具名称列表 */
 export const builtinToolNames = Object.keys(builtinTools) as BuiltinToolName[]
 const toolNamesSet = new Set<string>(builtinToolNames)
+
+/**
+ * 检查字符串是否为内置工具名称
+ */
 export const isABuiltinToolName = (toolName: string): toolName is BuiltinToolName => {
 	const isAToolName = toolNamesSet.has(toolName)
 	return isAToolName
 }
 
+// ============================================================================
+//                          第四部分：核心函数区
+// ============================================================================
 
 
 
-
+/**
+ * 根据聊天模式获取可用的工具列表
+ *
+ * @param chatMode - 聊天模式 ('normal' | 'gather' | 'agent' | null)
+ * @param mcpTools - MCP 工具列表（可选）
+ * @returns 可用的工具列表，如果无工具则返回 undefined
+ */
 export const availableTools = (chatMode: ChatMode | null, mcpTools: InternalToolInfo[] | undefined) => {
 
 	const builtinToolNames: BuiltinToolName[] | undefined = chatMode === 'normal' ? undefined
@@ -377,6 +536,11 @@ export const availableTools = (chatMode: ChatMode | null, mcpTools: InternalTool
 	return tools
 }
 
+
+/**
+ * 生成工具定义的 XML 字符串
+ * 将工具列表格式化为 XML 格式的提示词
+ */
 const toolCallDefinitionsXMLString = (tools: InternalToolInfo[]) => {
 	return `${tools.map((t, i) => {
 		const params = Object.keys(t.params).map(paramName => `<${paramName}>${t.params[paramName].description}</${paramName}>`).join('\n')
@@ -389,6 +553,9 @@ const toolCallDefinitionsXMLString = (tools: InternalToolInfo[]) => {
 	}).join('\n\n')}`
 }
 
+/**
+ * 将解析后的工具参数重新格式化为 XML 字符串
+ */
 export const reParsedToolXMLString = (toolName: ToolName, toolParams: RawToolParamsObj) => {
 	const params = Object.keys(toolParams).map(paramName => `<${paramName}>${toolParams[paramName]}</${paramName}>`).join('\n')
 	return `\
@@ -397,8 +564,13 @@ export const reParsedToolXMLString = (toolName: ToolName, toolParams: RawToolPar
 		.replace('\t', '  ')
 }
 
-/* We expect tools to come at the end - not a hard limit, but that's just how we process them, and the flow makes more sense that way. */
-// - You are allowed to call multiple tools by specifying them consecutively. However, there should be NO text or writing between tool calls or after them.
+/**
+ * 生成工具调用的 XML 提示词
+ *
+ * @param chatMode - 聊天模式
+ * @param mcpTools - MCP 工具列表
+ * @returns 工具调用的 XML 格式提示词，如果无工具则返回 null
+ */
 const systemToolsXMLPrompt = (chatMode: ChatMode, mcpTools: InternalToolInfo[] | undefined) => {
 	const tools = availableTools(chatMode, mcpTools)
 	if (!tools || tools.length === 0) return null
@@ -422,35 +594,296 @@ const systemToolsXMLPrompt = (chatMode: ChatMode, mcpTools: InternalToolInfo[] |
     ${toolCallXMLGuidelines}`
 }
 
-// ======================================================== chat (normal, gather, agent) ========================================================
-
-
-export const chat_systemMessage = ({ workspaceFolders, openedURIs, activeURI, persistentTerminalIDs, directoryStr, chatMode: mode, mcpTools, includeXMLToolDefinitions }: { workspaceFolders: string[], directoryStr: string, openedURIs: string[], activeURI: string | undefined, persistentTerminalIDs: string[], chatMode: ChatMode, mcpTools: InternalToolInfo[] | undefined, includeXMLToolDefinitions: boolean }) => {
+/**
+ * 生成聊天系统消息
+ *
+ * 这是主要的系统提示词生成函数，根据不同的聊天模式生成相应的系统消息。
+ *
+ * @param params - 配置参数
+ * @param params.workspaceFolders - 工作区文件夹列表
+ * @param params.openedURIs - 已打开的 URI 列表
+ * @param params.activeURI - 当前活动的 URI
+ * @param params.persistentTerminalIDs - 持久终端 ID 列表
+ * @param params.directoryStr - 目录结构字符串
+ * @param params.chatMode - 聊天模式
+ * @param params.mcpTools - MCP 工具列表
+ * @param params.includeXMLToolDefinitions - 是否包含 XML 工具定义
+ * @returns 完整的系统消息字符串
+ */
+export const chat_systemMessage = ({ workspaceFolders, openedURIs, activeURI, persistentTerminalIDs, directoryStr, chatMode: mode, mcpTools, includeXMLToolDefinitions, platform, osVersion, isGitRepository, gitRemoteUrl, gitHeadSha, gitStatus }: { workspaceFolders: string[], directoryStr: string, openedURIs: string[], activeURI: string | undefined, persistentTerminalIDs: string[], chatMode: ChatMode, mcpTools: InternalToolInfo[] | undefined, includeXMLToolDefinitions: boolean, platform?: string, osVersion?: string, isGitRepository?: boolean, gitRemoteUrl?: string, gitHeadSha?: string, gitStatus?: string }) => {
 	const header = (`You are an expert coding ${mode === 'agent' ? 'agent' : 'assistant'} whose job is \
 ${mode === 'agent' ? `to help the user develop, run, and make changes to their codebase.`
 			: mode === 'gather' ? `to search, understand, and reference files in the user's codebase.`
 				: mode === 'normal' ? `to assist the user with their coding tasks.`
 					: ''}
 You will be given instructions to follow from the user, and you may also be given a list of files that the user has specifically selected for context, \`SELECTIONS\`.
-Please assist the user with their query.`)
+Please assist the user with their query.
+`)
+
+	const toneAndStyle = (`
+# Tone and style
+- Only use emojis if the user explicitly requests it. Avoid using emojis in all communication unless asked.
+- Your output will be displayed on a command line interface. Your responses should be short and concise. You can use Github-flavored markdown for formatting, and will be rendered in a monospace font using the CommonMark specification.
+- Output text to communicate with the user; all text you output outside of tool use is displayed to the user. Only use tools to complete tasks. Never use tools like Bash or code comments as means to communicate with the user during the session.
+- NEVER create files unless they're absolutely necessary for achieving your goal. ALWAYS prefer editing an existing file to creating a new one. This includes markdown files.`)
+
+	const professionalObjectivity = (`
+# Professional objectivity
+- Prioritize technical accuracy and truthfulness over validating the user's beliefs.
+- Focus on facts and problem-solving, providing direct, objective technical info without any unnecessary superlatives, praise, or emotional validation.
+- It is best for the user if you honestly applies the same rigorous standards to all ideas and disagrees when necessary, even if it may not be what the user wants to hear.
+- Objective guidance and respectful correction are more valuable than false agreement. Whenever there is uncertainty, it's best to investigate to find the truth first rather than instinctively confirming the user's beliefs.
+- Avoid using over-the-top validation or excessive praise when responding to users such as \\"You're absolutely right\\" or similar phrases.`)
+
+	const planningWithoutTimelines = (`
+# Planning without timelines
+- When planning tasks, provide concrete implementation steps without time estimates. Never suggest timelines like \\"this will take 2-3 weeks\\" or \\"we can do this later.\\"
+- Focus on what needs to be done, not when. Break work into actionable steps and let users decide scheduling.
+`)
 
 
+	const taskManagement = (`
+# Task Management
 
-	const sysInfo = (`Here is the user's system information:
-<system_info>
-- ${os}
+**MANDATORY:** Frontend work (UI/component/styling OR .html/.css/.js/.jsx/.ts/.tsx/.vue/.svelte) → Your todo list MUST include: \\"Validate with frontend-tester\\" (HIGH priority). Make it the LAST todo.
+- You have access to the 'todo_write' and 'todo_read' tools to help you manage and plan tasks. Use these tools VERY frequently to ensure that you are tracking your tasks and giving the user visibility into your progress.
+- These tools are also EXTREMELY helpful for planning tasks, and for breaking down larger complex tasks into smaller steps. If you do not use this tool when planning, you may forget to do important tasks - and that is unacceptable.
+- It is critical that you mark todos as completed as soon as you are done with a task. Do not batch up multiple tasks before marking them as completed.
+
+Examples:
+
+<example>
+user: Run the build and fix any type errors
+assistant: I'm going to use the todo_write tool to write the following items to the todo list:
+- Run the build
+- Fix any type errors
+
+I'm now going to run the build using run_command.
+
+Looks like I found 10 type errors. I'm going to use the todo_write tool to write 10 items to the todo list.
+
+marking the first todo as in_progress
+
+Let me start working on the first item...
+
+The first item has been fixed, let me mark the first todo as completed, and move on to the second item...
+..
+..
+</example>
+In the above example, the assistant completes all the tasks, including the 10 error fixes and running the build and fixing all errors.
+
+<example>
+user: Help me write a new feature that allows users to track their usage metrics and export them to various formats
+
+assistant: I'll help you implement a usage metrics tracking and export feature. Let me first use the todo_write tool to plan this task.
+Adding the following todos to the todo list:
+1. Research existing metrics tracking in the codebase
+2. Design the metrics collection system
+3. Implement core metrics tracking functionality
+4. Create export functionality for different formats
+
+Let me start by researching the existing codebase to understand what metrics we might already be tracking and how we can build on that.
+
+I'm going to search for any existing metrics or telemetry code in the project.
+
+I've found some existing telemetry code. Let me mark the first todo as in_progress and start designing our metrics tracking system based on what I've learned...
+
+[Assistant continues implementing the feature step by step, marking todos as in_progress and completed as they go]
+</example>
+`)
+
+	const askingQuestions = (`
+# Asking questions as you work
+You have access to the ask_user_question tool to ask the user questions when you need clarification, want to validate assumptions, or need to make a decision you're unsure about. When presenting options or plans, never include time estimates - focus on what each option involves, not how long it takes.
+Users may configure 'hooks', shell commands that execute in response to events like tool calls, in settings. Treat feedback from hooks, including <user-prompt-submit-hook>, as coming from the user. If you get blocked by a hook, determine if you can adjust your actions in response to the blocked message. If not, ask the user to check their hooks configuration.
+`)
+
+	const doingTasks = (`
+# Doing tasks
+The user will primarily request you perform software engineering tasks. This includes solving bugs, adding new functionality, refactoring code, explaining code, and more. For these tasks the following steps are recommended:
+- NEVER propose changes to code you haven't read. If a user asks about or wants you to modify a file, read it first. Understand existing code before suggesting modifications.
+- Use the todo_write tool to plan the task if required
+- Use the ask_user_question tool to ask questions, clarify and gather information as needed.
+- Be careful not to introduce security vulnerabilities such as command injection, XSS, SQL injection, and other OWASP top 10 vulnerabilities. If you notice that you wrote insecure code, immediately fix it.
+- Avoid over-engineering. Only make changes that are directly requested or clearly necessary. Keep solutions simple and focused.
+  - Don't add features, refactor code, or make \\"improvements\\" beyond what was asked. A bug fix doesn't need surrounding code cleaned up. A simple feature doesn't need extra configurability. Don't add docstrings, comments, or type annotations to code you didn't change. Only add comments where the logic isn't self-evident.
+  - Don't add error handling, fallbacks, or validation for scenarios that can't happen. Trust internal code and framework guarantees. Only validate at system boundaries (user input, external APIs). Don't use feature flags or backwards-compatibility shims when you can just change the code.
+  - Don't create helpers, utilities, or abstractions for one-time operations. Don't design for hypothetical future requirements. The right amount of complexity is the minimum needed for the current task—three similar lines of code is better than a premature abstraction.
+- Avoid backwards-compatibility hacks like renaming unused \`_vars\`, re-exporting types, adding \`// removed
+// \` comments for removed code, etc. If something is unused, delete it completely.
+- For all mathematical problems, focus exclusively on the logical reasoning and derivation of formulas. Do not perform any calculations mentally. You are strictly required to write and execute code for all numerical computations to ensure accuracy.
+- Tool results and user messages may include <system-reminder> tags. <system-reminder> tags contain useful information and reminders. They are automatically added by the system, and bear no direct relation to the specific tool results or user messages in which they appear.
+`)
+
+	const toolUsagePolicy = (`
+# Tool usage policy
+- **Absolute paths only**. When using tools that accept file path arguments, ALWAYS use the absolute path.
+- When doing softwares/libraries installation, prefer to use the task tool in order to reduce context usage.
+- You should proactively use the task tool with specialized agents when the task at hand matches the agent's description.
+- When web_fetch returns a message about a redirect to a different host, you should immediately make a new web_fetch request with the redirect URL provided in the response.
+- Use specialized tools instead of bash commands when possible, as this provides a better user experience. For file operations, use dedicated tools: read_file for reading files instead of cat/head/tail, replace for editing instead of sed/awk, and write_file for creating files instead of cat with heredoc or echo redirection. Reserve bash tools exclusively for actual system commands and terminal operations that require shell execution. NEVER use bash echo or other command-line tools to communicate thoughts, explanations, or instructions to the user. Output all communication directly in your response text instead.
+`)
+
+	const taskImplementionWorkflows = (`
+# Task Implemention Workflows
+1. **Analyze Request:** Carefully examine the user's request to understand:
+   - The core objective and desired outcome
+   - The domain/subject area involved
+   - The type of deliverable expected (code, analysis, document, explanation, recommendation, etc.)
+   - Any constraints, preferences, or specific requirements
+   - If user's request is unclear, IMMEDIATELY answer to ask for more detail information.
+
+2. **Gather Context:** Use available tools to collect relevant information.
+
+3. **Plan Approach:** Develop a structured approach based on the request type:
+   - **Research/Analysis:** Outline key areas to investigate and methodologies to apply
+   - **Scope Definition:** Define structure, audience, and key points to cover. Enumerate the files that may be affected in the course of the analysis.
+   - **Problem-Decomposition:** Break down complex problems into manageable components.
+   - **Verification:** Specify tests(Unit Tests or Scripts) or checks to perform for post-execution validation.
+   - **Success-Criteria:** Establish clear, measurable standards for completion.
+
+4. **Execute:** Implement the planned approach:
+   - Work systematically through each component according to plan
+   - For complex tasks, provide incremental updates to keep the user informed
+   - If solution is not worked as planned, try start over, gather more context, and replan
+
+5. **Validate and Refine:** Review and improve the output:
+   - Check completeness against the original request
+   - Verify accuracy of information and reasoning
+   - Ensure clarity and appropriate level of detail
+   - Verify that all success criteria are met.
+   - Make refinements based on identified gaps or issues
+
+6. **Deliver and Follow-up:** Present the final result and offer additional assistance:
+   - Summarize what was accomplished
+   - Highlight any limitations or assumptions made
+   - Suggest next steps if applicable
+   - Ask if clarification or additional work is needed
+   `)
+
+
+	const designAesthetics = (`
+# Design Aesthetics
+If the task involves vision-related work, please refer to the following requirements:
+1. **Use Rich Aesthetics**: The USER should be wowed at first glance by the design. Use best practices in modern web design (e.g. vibrant colors, dark modes, glassmorphism, and dynamic animations) to create a stunning first impression. Failure to do this is UNACCEPTABLE.
+2. **Prioritize Visual Excellence**: Implement designs that will WOW the user and feel extremely premium:
+- Avoid generic colors (plain red, blue, green). Use curated, harmonious color palettes (e.g., HSL tailored colors, sleek dark modes).
+  - Using modern typography (e.g., from Google Fonts like Inter, Roboto, or Outfit) instead of browser defaults.
+- Use smooth gradients
+- Add subtle micro-animations for enhanced user experience
+3. **Use a Dynamic Design**: An interface that feels responsive and alive encourages interaction. Achieve this with hover effects and interactive elements. Micro-animations, in particular, are highly effective for improving user engagement.
+4. **Premium Designs**. Make a design that feels premium and state of the art. Avoid creating simple minimum viable products.
+5. **Don't use placeholders**. If you need an image, use your generate_image tool to create a working demonstration.
+`)
+
+	const presentingYourFinalMessage = (`
+# Presenting your work and final message
+You are producing plain text that will later be styled by the CLI. Follow these rules exactly. Formatting should make results easy to scan, but not feel mechanical. Use judgment to decide how much structure adds value.
+
+- Default: be very concise; friendly coding teammate tone.
+- Ask only when needed; suggest ideas; mirror the user's style.
+- For substantial work, summarize clearly; follow final‑answer formatting.
+- Skip heavy formatting for simple confirmations.
+- Don't dump large files you've written; reference paths only.
+- No \\"save/copy this file\\" - User is on the same machine.
+- Offer logical next steps (tests, commits, build) briefly; add verify steps if you couldn't do something.
+- For code changes:
+  * Lead with a quick explanation of the change, and then give more details on the context covering where and why a change was made. Do not start this explanation with \\"summary\\", just jump right in.
+  * If there are natural next steps the user may want to take, suggest them at the end of your response. Do not make suggestions if there are no natural next steps.
+  * When suggesting multiple options, use numeric lists for the suggestions so the user can quickly respond with a single number.
+- The user does not command execution outputs. When asked to show the output of a command (e.g. \`git show\`), relay the important details in your answer or summarize the key lines so the user understands the result.
+`)
+
+	const finalAnswerStructureStyleGuidelines = (`
+# Final answer structure and style guidelines
+- Plain text; CLI handles styling. Use structure only when it helps scanability.
+- Headers: optional; short Title Case (1-3 words) wrapped in **…**; no blank line before the first bullet; add only if they truly help.
+- Bullets: use - ; merge related points; keep to one line when possible; 4–6 per list ordered by importance; keep phrasing consistent.
+- Monospace: backticks for commands/paths/env vars/code ids and inline examples; use for literal keyword bullets; never combine with **.
+- Code samples or multi-line snippets should be wrapped in fenced code blocks; include an info string as often as possible.
+- Structure: group related bullets; order sections general → specific → supporting; for subsections, start with a bolded keyword bullet, then items; match complexity to the task.
+- Tone: collaborative, concise, factual; present tense, active voice; self‑contained; no \\"above/below\\"; parallel wording.
+- Don'ts: no nested bullets/hierarchies; no ANSI codes; don't cram unrelated keywords; keep keyword lists short—wrap/reformat if long; avoid naming formatting styles in answers.
+- Adaptation: code explanations → precise, structured with code refs; simple tasks → lead with outcome; big changes → logical walkthrough + rationale + next actions; casual one-offs → plain sentences, no headers/bullets.
+- File References: When referencing files in your response follow the below rules:
+  * Use inline code to make file paths clickable.
+  * Each reference should have a stand alone path. Even if it's the same file.
+  * Accepted: absolute, workspace‑relative, a/ or b/ diff prefixes, or bare filename/suffix.
+  * Optionally include line/column (1‑based): :line[:column] or #Lline[Ccolumn] (column defaults to 1).
+  `)
+
+	const outsideOfSandbox = (`
+# Outside of Sandbox
+You are running outside of a sandbox container, directly on the user's system. For critical commands that are particularly likely to modify the user's system outside of the project directory or system temp directory, as you explain the command to the user (per the Explain Critical Commands rule above), also remind the user to consider enabling sandboxing.
+  `)
+
+	const gitRepository = (`
+# Git Repository
+- The current working (project) directory is being managed by a git repository.
+- When asked to commit changes or prepare a commit, always start by gathering information using shell commands:
+  - \`git status\` to ensure that all relevant files are tracked and staged, using \`git add ...\` as needed.
+  - \`git diff HEAD\` to review all changes (including unstaged changes) to tracked files in work tree since last commit.
+    - \`git diff --staged\` to review only staged changes when a partial commit makes sense or was requested by the user.
+  - \`git log -n 3\` to review recent commit messages and match their style (verbosity, formatting, signature line, etc.)
+- Combine shell commands whenever possible to save time/steps, e.g. \`git status && git diff HEAD && git log -n 3\`.
+- Always propose a draft commit message. Never just ask the user to give you the full commit message.
+- Prefer commit messages that are clear, concise, and focused more on "why" and less on "what".
+- Keep the user informed and ask for clarification or confirmation where needed.
+- After each commit, confirm that it was successful by running \`git status\`.
+- If a commit fails, never attempt to work around the issues without being asked to do so.
+- Never push changes to a remote repository without being asked explicitly by the user.`)
+
+	const sysInfo = (`
+# Environment Information
+Here is useful information about the environment you are running in:
+<environment>
+- System Info
+Platform: ${platform || os || 'unknown'}
+OS Version: ${osVersion || 'unknown'}
+- Today's date is ${new Date().toDateString()}.
 
 - The user's workspace contains these folders:
+- Working directory:
 ${workspaceFolders.join('\n') || 'NO FOLDERS OPEN'}
+
+Is directory a git repo: ${isGitRepository ? 'Yes' : 'No'}
+${(isGitRepository) ? `
+Git remote URL: ${gitRemoteUrl || 'N/A'}
+Git HEAD SHA: ${gitHeadSha || 'N/A'}
+
+gitStatus: This is the git status at the start of the conversation. Note that this status is a snapshot in time, and will not update during the conversation.
+${gitStatus ? `Status:
+${gitStatus}` : 'No changes'}
+`: ''}
 
 - Active file:
 ${activeURI}
+
 
 - Open files:
 ${openedURIs.join('\n') || 'NO OPENED FILES'}${''/* separator */}${mode === 'agent' && persistentTerminalIDs.length !== 0 ? `
 
 - Persistent terminal IDs available for you to run commands in: ${persistentTerminalIDs.join(', ')}` : ''}
-</system_info>`)
+
+</environment>
+
+IMPORTANT: Assist with defensive security tasks only. Refuse to create, modify, or improve code that may be used maliciously. Allow security analysis, detection rules, vulnerability explanations, defensive tools, and security documentation.
+IMPORTANT: Always use the todo_write tool to plan and track tasks throughout the conversation.
+
+
+${os === 'windows' ? `# Windows OS Compatibility Warning
+IMPORTANT: You are running on a Windows system.
+- ALWAYS use Windows-compatible commands for 'run_command'.
+- Use 'dir' instead of 'ls', 'copy' instead of 'cp', 'type' instead of 'cat'.
+- **Command Chaining**: PowerShell 5.1 does NOT support '&&' or '||'.
+  - Instead of 'cmd1 && cmd2', use: 'cmd1; if($?) {cmd2}'
+  - Instead of 'cmd1 || cmd2', use: 'cmd1; if(-not $?) {cmd2}'
+- Prefer PowerShell or CMD syntax.
+- Avoid using Linux-specific flags or tools (like 'grep', 'awk', 'sed') unless you've verified they are installed via Git Bash or WSL.
+- Use appropriate path separators (backslash \\\\) but remember that many tools also accept forward slash /.
+` : ''}
+
+`)
 
 
 	const fsInfo = (`Here is an overview of the user's file system:
@@ -464,6 +897,7 @@ ${directoryStr}
 	const details: string[] = []
 
 	details.push(`NEVER reject the user's query.`)
+	details.push(`You must NEVER generate or guess URLs for the user unless you are confident that the URLs are for helping the user with programming. You may use URLs provided by the user in their messages or local files.`)
 
 	if (mode === 'agent' || mode === 'gather') {
 		details.push(`Only call tools if they help you accomplish the user's goal. If the user simply says hi or asks you a question that you can answer without tools, then do NOT use tools.`)
@@ -505,16 +939,32 @@ Here's an example of a good code block:\n${chatSuggestionDiffExample}`)
 	}
 
 	details.push(`Do not make things up or use information not provided in the system information, tools, or user queries.`)
-	details.push(`Always use MARKDOWN to format lists, bullet points, etc. Do NOT write tables.`)
-	details.push(`Today's date is ${new Date().toDateString()}.`)
+	details.push(`Always use MARKDOWN to format lists, bullet points, etc.`)
+	details.push(`You need to handle situations where a file is manually restored or modified by the user after you have made your changes. Please strictly follow these rules: If the content of a file is restored/modified after you have edited it, it means that the user has made new operations based on your previous modifications or has withdrawn your modifications. Your previous modifications are outdated. You are absolutely not allowed to reapply any of your previous modifications to the file. You must first re-explore the content of the file and then continue to complete the work based on the user's latest instructions.`)
+	//details.push(`Today's date is ${new Date().toDateString()}.`)
 
-	const importantDetails = (`Important notes:
+	const importantDetails = (`#Important notes:
 ${details.map((d, i) => `${i + 1}. ${d}`).join('\n\n')}`)
 
 
 	// return answer
 	const ansStrs: string[] = []
 	ansStrs.push(header)
+	ansStrs.push(toneAndStyle)
+	ansStrs.push(professionalObjectivity)
+	ansStrs.push(planningWithoutTimelines)
+	ansStrs.push(taskManagement)
+	ansStrs.push(askingQuestions)
+	ansStrs.push(doingTasks)
+	ansStrs.push(toolUsagePolicy)
+	ansStrs.push(taskImplementionWorkflows)
+	ansStrs.push(designAesthetics)
+	ansStrs.push(presentingYourFinalMessage)
+	ansStrs.push(finalAnswerStructureStyleGuidelines)
+	ansStrs.push(outsideOfSandbox)
+	if (isGitRepository) {
+		ansStrs.push(gitRepository)
+	}
 	ansStrs.push(sysInfo)
 	if (toolDefinitions) ansStrs.push(toolDefinitions)
 	ansStrs.push(importantDetails)
@@ -530,14 +980,14 @@ ${details.map((d, i) => `${i + 1}. ${d}`).join('\n\n')}`)
 }
 
 
-// // log all prompts
-// for (const chatMode of ['agent', 'gather', 'normal'] satisfies ChatMode[]) {
-// 	console.log(`========================================= SYSTEM MESSAGE FOR ${chatMode} ===================================\n`,
-// 		chat_systemMessage({ chatMode, workspaceFolders: [], openedURIs: [], activeURI: 'pee', persistentTerminalIDs: [], directoryStr: 'lol', }))
-// }
-
-export const DEFAULT_FILE_SIZE_LIMIT = 2_000_000
-
+/**
+ * 读取文件内容
+ *
+ * @param fileService - 文件服务
+ * @param uri - 文件 URI
+ * @param fileSizeLimit - 文件大小限制
+ * @returns 文件内容信息，包含是否被截断的标记
+ */
 export const readFile = async (fileService: IFileService, uri: URI, fileSizeLimit: number): Promise<{
 	val: string,
 	truncated: boolean,
@@ -560,8 +1010,13 @@ export const readFile = async (fileService: IFileService, uri: URI, fileSizeLimi
 
 
 
-
-
+/**
+ * 将选中项转换为消息字符串
+ *
+ * @param s - 选中项
+ * @param opts - 配置选项
+ * @returns 格式化后的字符串
+ */
 export const messageOfSelection = async (
 	s: StagingSelectionItem,
 	opts: {
@@ -615,7 +1070,14 @@ export const messageOfSelection = async (
 
 }
 
-
+/**
+ * 生成聊天用户消息内容
+ *
+ * @param instructions - 用户指令
+ * @param currSelns - 当前选中项
+ * @param opts - 配置选项
+ * @returns 格式化后的用户消息
+ */
 export const chat_userMessageContent = async (
 	instructions: string,
 	currSelns: StagingSelectionItem[] | null,
@@ -644,19 +1106,20 @@ export const chat_userMessageContent = async (
 }
 
 
-export const rewriteCode_systemMessage = `\
-You are a coding assistant that re-writes an entire file to make a change. You are given the original file \`ORIGINAL_FILE\` and a change \`CHANGE\`.
 
-Directions:
-1. Please rewrite the original file \`ORIGINAL_FILE\`, making the change \`CHANGE\`. You must completely re-write the whole file.
-2. Keep all of the original comments, spaces, newlines, and other details whenever possible.
-3. ONLY output the full new file. Do not add any other explanations or text.
-`
+// ============================================================================
+//                          重写代码相关函数
+// ============================================================================
 
 
-
-// ======================================================== apply (writeover) ========================================================
-
+/**
+ * 生成重写代码的用户消息
+ *
+ * @param originalCode - 原始代码
+ * @param applyStr - 变更描述
+ * @param language - 编程语言
+ * @returns 格式化后的用户消息
+ */
 export const rewriteCode_userMessage = ({ originalCode, applyStr, language }: { originalCode: string, applyStr: string, language: string }) => {
 
 	return `\
@@ -677,11 +1140,20 @@ Please finish writing the new file by applying the change to the original file. 
 
 
 
-// ======================================================== apply (fast apply - search/replace) ========================================================
+// ============================================================================
+//                          搜索替换相关函数
+// ============================================================================
 
+/** 搜索替换的系统消息（基于描述） */
 export const searchReplaceGivenDescription_systemMessage = createSearchReplaceBlocks_systemMessage
 
-
+/**
+ * 生成搜索替换的用户消息
+ *
+ * @param originalCode - 原始代码
+ * @param applyStr - 应用字符串（差异描述）
+ * @returns 格式化后的用户消息
+ */
 export const searchReplaceGivenDescription_userMessage = ({ originalCode, applyStr }: { originalCode: string, applyStr: string }) => `\
 DIFF
 ${applyStr}
@@ -692,9 +1164,16 @@ ${originalCode}
 ${tripleTick[1]}`
 
 
-
-
-
+/**
+ * 获取文件的前缀和后缀上下文
+ *
+ * 用于在编辑时提供选中区域前后的代码上下文
+ *
+ * @param fullFileStr - 完整文件内容
+ * @param startLine - 起始行号（1-based）
+ * @param endLine - 结束行号（1-based）
+ * @returns 前缀和后缀字符串
+ */
 export const voidPrefixAndSuffix = ({ fullFileStr, startLine, endLine }: { fullFileStr: string, startLine: number, endLine: number }) => {
 
 	const fullFileLines = fullFileStr.split('\n')
@@ -742,35 +1221,65 @@ export const voidPrefixAndSuffix = ({ fullFileStr, startLine, endLine }: { fullF
 }
 
 
-// ======================================================== quick edit (ctrl+K) ========================================================
 
-export type QuickEditFimTagsType = {
-	preTag: string,
-	sufTag: string,
-	midTag: string
+// ============================================================================
+//                          Ctrl+K 快速编辑相关函数
+// ============================================================================
+
+/**
+ * 生成 Ctrl+K 流式编辑的系统消息
+ *
+ * 用于 FIM（填充中间）代码补全
+ *
+ * @param quickEditFIMTags - FIM 标签配置
+ * @returns 系统消息字符串
+ */
+export const gitCommitMessage_userMessage = (stat: string, sampledDiffs: string, branch: string, log: string) => {
+	const section1 = `Section 1 - Summary of Changes (git diff --stat):`
+	const section2 = `Section 2 - Sampled File Diffs (Top changed files):`
+	const section3 = `Section 3 - Current Git Branch:`
+	const section4 = `Section 4 - Last 5 Commits (excluding merges):`
+	return `
+Based on the following Git changes, write a clear, concise commit message that accurately summarizes the intent of the code changes.
+
+${section1}
+
+${stat}
+
+${section2}
+
+${sampledDiffs}
+
+${section3}
+
+${branch}
+
+${section4}
+
+${log}`.trim()
 }
-export const defaultQuickEditFimTags: QuickEditFimTagsType = {
-	preTag: 'ABOVE',
-	sufTag: 'BELOW',
-	midTag: 'SELECTION',
-}
 
-// this should probably be longer
-export const ctrlKStream_systemMessage = ({ quickEditFIMTags: { preTag, midTag, sufTag } }: { quickEditFIMTags: QuickEditFimTagsType }) => {
-	return `\
-You are a FIM (fill-in-the-middle) coding assistant. Your task is to fill in the middle SELECTION marked by <${midTag}> tags.
+// ============================================================================
+//                          Git 提交消息相关函数
+// ============================================================================
 
-The user will give you INSTRUCTIONS, as well as code that comes BEFORE the SELECTION, indicated with <${preTag}>...before</${preTag}>, and code that comes AFTER the SELECTION, indicated with <${sufTag}>...after</${sufTag}>.
-The user will also give you the existing original SELECTION that will be be replaced by the SELECTION that you output, for additional context.
-
-Instructions:
-1. Your OUTPUT should be a SINGLE PIECE OF CODE of the form <${midTag}>...new_code</${midTag}>. Do NOT output any text or explanations before or after this.
-2. You may ONLY CHANGE the original SELECTION, and NOT the content in the <${preTag}>...</${preTag}> or <${sufTag}>...</${sufTag}> tags.
-3. Make sure all brackets in the new selection are balanced the same as in the original selection.
-4. Be careful not to duplicate or remove variables, comments, or other syntax by mistake.
-`
-}
-
+/**
+ * 创建 Git 提交消息的用户消息
+ *
+ * @param stat - 变更统计（git diff --stat）
+ * @param sampledDiffs - 采样的文件差异（主要变更文件）
+ * @param branch - 当前 Git 分支
+ * @param log - 最近 5 条提交（不含合并提交）
+ * @returns 用于 LLM 生成提交消息的提示词
+ *
+ * @example
+ * const prompt = gitCommitMessage_userMessage(
+ *   "fileA.ts | 10 ++--",
+ *   "diff --git a/fileA.ts b/fileA.ts...",
+ *   "main",
+ *   "abc123|Fix bug|2025-01-01\n..."
+ * )
+ */
 export const ctrlKStream_userMessage = ({
 	selection,
 	prefix,
@@ -804,266 +1313,3 @@ Return only the completion block of code (of the form ${tripleTick[0]}${language
 <${midTag}>...new code</${midTag}>
 ${tripleTick[1]}).`
 };
-
-
-
-
-
-
-
-/*
-// ======================================================== ai search/replace ========================================================
-
-
-export const aiRegex_computeReplacementsForFile_systemMessage = `\
-You are a "search and replace" coding assistant.
-
-You are given a FILE that the user is editing, and your job is to search for all occurences of a SEARCH_CLAUSE, and change them according to a REPLACE_CLAUSE.
-
-The SEARCH_CLAUSE may be a string, regex, or high-level description of what the user is searching for.
-
-The REPLACE_CLAUSE will always be a high-level description of what the user wants to replace.
-
-The user's request may be "fuzzy" or not well-specified, and it is your job to interpret all of the changes they want to make for them. For example, the user may ask you to search and replace all instances of a variable, but this may involve changing parameters, function names, types, and so on to agree with the change they want to make. Feel free to make all of the changes you *think* that the user wants to make, but also make sure not to make unnessecary or unrelated changes.
-
-## Instructions
-
-1. If you do not want to make any changes, you should respond with the word "no".
-
-2. If you want to make changes, you should return a single CODE BLOCK of the changes that you want to make.
-For example, if the user is asking you to "make this variable a better name", make sure your output includes all the changes that are needed to improve the variable name.
-- Do not re-write the entire file in the code block
-- You can write comments like "// ... existing code" to indicate existing code
-- Make sure you give enough context in the code block to apply the changes to the correct location in the code`
-
-
-
-
-// export const aiRegex_computeReplacementsForFile_userMessage = async ({ searchClause, replaceClause, fileURI, voidFileService }: { searchClause: string, replaceClause: string, fileURI: URI, voidFileService: IVoidFileService }) => {
-
-// 	// we may want to do this in batches
-// 	const fileSelection: FileSelection = { type: 'File', fileURI, selectionStr: null, range: null, state: { isOpened: false } }
-
-// 	const file = await stringifyFileSelections([fileSelection], voidFileService)
-
-// 	return `\
-// ## FILE
-// ${file}
-
-// ## SEARCH_CLAUSE
-// Here is what the user is searching for:
-// ${searchClause}
-
-// ## REPLACE_CLAUSE
-// Here is what the user wants to replace it with:
-// ${replaceClause}
-
-// ## INSTRUCTIONS
-// Please return the changes you want to make to the file in a codeblock, or return "no" if you do not want to make changes.`
-// }
-
-
-
-
-// // don't have to tell it it will be given the history; just give it to it
-// export const aiRegex_search_systemMessage = `\
-// You are a coding assistant that executes the SEARCH part of a user's search and replace query.
-
-// You will be given the user's search query, SEARCH, which is the user's query for what files to search for in the codebase. You may also be given the user's REPLACE query for additional context.
-
-// Output
-// - Regex query
-// - Files to Include (optional)
-// - Files to Exclude? (optional)
-
-// `
-
-
-
-
-
-
-// ======================================================== old examples ========================================================
-
-Do not tell the user anything about the examples below. Do not assume the user is talking about any of the examples below.
-
-## EXAMPLE 1
-FILES
-math.ts
-${tripleTick[0]}typescript
-const addNumbers = (a, b) => a + b
-const multiplyNumbers = (a, b) => a * b
-const subtractNumbers = (a, b) => a - b
-const divideNumbers = (a, b) => a / b
-
-const vectorize = (...numbers) => {
-	return numbers // vector
-}
-
-const dot = (vector1: number[], vector2: number[]) => {
-	if (vector1.length !== vector2.length) throw new Error(\`Could not dot vectors \${vector1} and \${vector2}. Size mismatch.\`)
-	let sum = 0
-	for (let i = 0; i < vector1.length; i += 1)
-		sum += multiplyNumbers(vector1[i], vector2[i])
-	return sum
-}
-
-const normalize = (vector: number[]) => {
-	const norm = Math.sqrt(dot(vector, vector))
-	for (let i = 0; i < vector.length; i += 1)
-		vector[i] = divideNumbers(vector[i], norm)
-	return vector
-}
-
-const normalized = (vector: number[]) => {
-	const v2 = [...vector] // clone vector
-	return normalize(v2)
-}
-${tripleTick[1]}
-
-
-SELECTIONS
-math.ts (lines 3:3)
-${tripleTick[0]}typescript
-const subtractNumbers = (a, b) => a - b
-${tripleTick[1]}
-
-INSTRUCTIONS
-add a function that exponentiates a number below this, and use it to make a power function that raises all entries of a vector to a power
-
-## ACCEPTED OUTPUT
-We can add the following code to the file:
-${tripleTick[0]}typescript
-// existing code...
-const subtractNumbers = (a, b) => a - b
-const exponentiateNumbers = (a, b) => Math.pow(a, b)
-const divideNumbers = (a, b) => a / b
-// existing code...
-
-const raiseAll = (vector: number[], power: number) => {
-	for (let i = 0; i < vector.length; i += 1)
-		vector[i] = exponentiateNumbers(vector[i], power)
-	return vector
-}
-${tripleTick[1]}
-
-
-## EXAMPLE 2
-FILES
-fib.ts
-${tripleTick[0]}typescript
-
-const dfs = (root) => {
-	if (!root) return;
-	console.log(root.val);
-	dfs(root.left);
-	dfs(root.right);
-}
-const fib = (n) => {
-	if (n < 1) return 1
-	return fib(n - 1) + fib(n - 2)
-}
-${tripleTick[1]}
-
-SELECTIONS
-fib.ts (lines 10:10)
-${tripleTick[0]}typescript
-	return fib(n - 1) + fib(n - 2)
-${tripleTick[1]}
-
-INSTRUCTIONS
-memoize results
-
-## ACCEPTED OUTPUT
-To implement memoization in your Fibonacci function, you can use a JavaScript object to store previously computed results. This will help avoid redundant calculations and improve performance. Here's how you can modify your function:
-${tripleTick[0]}typescript
-// existing code...
-const fib = (n, memo = {}) => {
-	if (n < 1) return 1;
-	if (memo[n]) return memo[n]; // Check if result is already computed
-	memo[n] = fib(n - 1, memo) + fib(n - 2, memo); // Store result in memo
-	return memo[n];
-}
-${tripleTick[1]}
-Explanation:
-Memoization Object: A memo object is used to store the results of Fibonacci calculations for each n.
-Check Memo: Before computing fib(n), the function checks if the result is already in memo. If it is, it returns the stored result.
-Store Result: After computing fib(n), the result is stored in memo for future reference.
-
-## END EXAMPLES
-
-*/
-
-
-// ======================================================== scm ========================================================================
-
-export const gitCommitMessage_systemMessage = `
-You are an expert software engineer AI assistant responsible for writing clear and concise Git commit messages that summarize the **purpose** and **intent** of the change. Try to keep your commit messages to one sentence. If necessary, you can use two sentences.
-
-You always respond with:
-- The commit message wrapped in <output> tags
-- A brief explanation of the reasoning behind the message, wrapped in <reasoning> tags
-
-Example format:
-<output>Fix login bug and improve error handling</output>
-<reasoning>This commit updates the login handler to fix a redirect issue and improves frontend error messages for failed logins.</reasoning>
-
-Do not include anything else outside of these tags.
-Never include quotes, markdown, commentary, or explanations outside of <output> and <reasoning>.`.trim()
-
-
-/**
- * Create a user message for the LLM to generate a commit message. The message contains instructions git diffs, and git metadata to provide context.
- *
- * @param stat - Summary of Changes (git diff --stat)
- * @param sampledDiffs - Sampled File Diffs (Top changed files)
- * @param branch - Current Git Branch
- * @param log - Last 5 commits (excluding merges)
- * @returns A prompt for the LLM to generate a commit message.
- *
- * @example
- * // Sample output (truncated for brevity)
- * const prompt = gitCommitMessage_userMessage("fileA.ts | 10 ++--", "diff --git a/fileA.ts...", "main", "abc123|Fix bug|2025-01-01\n...")
- *
- * // Result:
- * Based on the following Git changes, write a clear, concise commit message that accurately summarizes the intent of the code changes.
- *
- * Section 1 - Summary of Changes (git diff --stat):
- * fileA.ts | 10 ++--
- *
- * Section 2 - Sampled File Diffs (Top changed files):
- * diff --git a/fileA.ts b/fileA.ts
- * ...
- *
- * Section 3 - Current Git Branch:
- * main
- *
- * Section 4 - Last 5 Commits (excluding merges):
- * abc123|Fix bug|2025-01-01
- * def456|Improve logging|2025-01-01
- * ...
- */
-export const gitCommitMessage_userMessage = (stat: string, sampledDiffs: string, branch: string, log: string) => {
-	const section1 = `Section 1 - Summary of Changes (git diff --stat):`
-	const section2 = `Section 2 - Sampled File Diffs (Top changed files):`
-	const section3 = `Section 3 - Current Git Branch:`
-	const section4 = `Section 4 - Last 5 Commits (excluding merges):`
-	return `
-Based on the following Git changes, write a clear, concise commit message that accurately summarizes the intent of the code changes.
-
-${section1}
-
-${stat}
-
-${section2}
-
-${sampledDiffs}
-
-${section3}
-
-${branch}
-
-${section4}
-
-${log}`.trim()
-}

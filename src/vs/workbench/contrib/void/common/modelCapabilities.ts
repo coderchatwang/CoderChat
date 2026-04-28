@@ -33,6 +33,46 @@ export const defaultProviderSettings = {
 		apiKey: '',
 		headersJSON: '{}', // default to {}
 	},
+	openAICompatible2: {
+		endpoint: '',
+		apiKey: '',
+		headersJSON: '{}', // default to {}
+	},
+	openAICompatible3: {
+		endpoint: '',
+		apiKey: '',
+		headersJSON: '{}', // default to {}
+	},
+	openAICompatible4: {
+		endpoint: '',
+		apiKey: '',
+		headersJSON: '{}', // default to {}
+	},
+	openAICompatible5: {
+		endpoint: '',
+		apiKey: '',
+		headersJSON: '{}', // default to {}
+	},
+	openAICompatible6: {
+		endpoint: '',
+		apiKey: '',
+		headersJSON: '{}', // default to {}
+	},
+	openAICompatible7: {
+		endpoint: '',
+		apiKey: '',
+		headersJSON: '{}', // default to {}
+	},
+	openAICompatible8: {
+		endpoint: '',
+		apiKey: '',
+		headersJSON: '{}', // default to {}
+	},
+	openAICompatible9: {
+		endpoint: '',
+		apiKey: '',
+		headersJSON: '{}', // default to {}
+	},
 	gemini: {
 		apiKey: '',
 	},
@@ -149,6 +189,14 @@ export const defaultModelsOfProvider = {
 		'ministral-8b-latest',
 	],
 	openAICompatible: [], // fallback
+	openAICompatible2: [], // fallback
+	openAICompatible3: [], // fallback
+	openAICompatible4: [], // fallback
+	openAICompatible5: [], // fallback
+	openAICompatible6: [], // fallback
+	openAICompatible7: [], // fallback
+	openAICompatible8: [], // fallback
+	openAICompatible9: [], // fallback
 	googleVertex: [],
 	microsoftAzure: [],
 	awsBedrock: [],
@@ -189,6 +237,9 @@ export type VoidStaticModelInfo = { // not stateful
 		// the only other field related to reasoning is "providerReasoningIOSettings", which varies by provider.
 	};
 
+	// vision support
+	supportsVision?: boolean; // whether the model supports image inputs (defaults to false)
+
 
 	// --- below is just informative, not used in sending / receiving, cannot be customized in settings ---
 	cost: {
@@ -212,6 +263,7 @@ export const modelOverrideKeys = [
 	'specialToolFormat',
 	'supportsFIM',
 	'reasoningCapabilities',
+	'supportsVision',
 	'additionalOpenAIPayload'
 ] as const
 
@@ -242,14 +294,15 @@ type VoidStaticProviderInfo = { // doesn't change (not stateful)
 
 
 const defaultModelOptions = {
-	contextWindow: 4_096,
+	contextWindow: 128_000,
 	reservedOutputTokenSpace: 4_096,
 	cost: { input: 0, output: 0 },
 	downloadable: false,
-	supportsSystemMessage: false,
+	specialToolFormat: 'openai-style',
+	supportsSystemMessage: 'system-role',
 	supportsFIM: false,
-	reasoningCapabilities: false,
-} as const satisfies VoidStaticModelInfo
+	reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: false, canIOReasoning: false, openSourceThinkTags: ['<think>', '</think>'] },
+} as const satisfies Partial<VoidStaticModelInfo>
 
 // TODO!!! double check all context sizes below
 // TODO!!! add openrouter common models
@@ -1253,6 +1306,82 @@ const openaiCompatible: VoidStaticProviderInfo = {
 	},
 }
 
+const openaiCompatible2: VoidStaticProviderInfo = {
+	modelOptionsFallback: (modelName) => extensiveModelOptionsFallback(modelName),
+	modelOptions: {},
+	providerReasoningIOSettings: {
+		// reasoning: we have no idea what endpoint they used, so we can't consistently parse out reasoning
+		input: { includeInPayload: openAICompatIncludeInPayloadReasoning },
+		output: { nameOfFieldInDelta: 'reasoning_content' },
+	},
+}
+
+const openaiCompatible3: VoidStaticProviderInfo = {
+	modelOptionsFallback: (modelName) => extensiveModelOptionsFallback(modelName),
+	modelOptions: {},
+	providerReasoningIOSettings: {
+		// reasoning: we have no idea what endpoint they used, so we can't consistently parse out reasoning
+		input: { includeInPayload: openAICompatIncludeInPayloadReasoning },
+		output: { nameOfFieldInDelta: 'reasoning_content' },
+	},
+}
+
+const openaiCompatible4: VoidStaticProviderInfo = {
+	modelOptionsFallback: (modelName) => extensiveModelOptionsFallback(modelName),
+	modelOptions: {},
+	providerReasoningIOSettings: {
+		// reasoning: we have no idea what endpoint they used, so we can't consistently parse out reasoning
+		input: { includeInPayload: openAICompatIncludeInPayloadReasoning },
+		output: { nameOfFieldInDelta: 'reasoning_content' },
+	},
+}
+const openaiCompatible5: VoidStaticProviderInfo = {
+	modelOptionsFallback: (modelName) => extensiveModelOptionsFallback(modelName),
+	modelOptions: {},
+	providerReasoningIOSettings: {
+		// reasoning: we have no idea what endpoint they used, so we can't consistently parse out reasoning
+		input: { includeInPayload: openAICompatIncludeInPayloadReasoning },
+		output: { nameOfFieldInDelta: 'reasoning_content' },
+	},
+}
+const openaiCompatible6: VoidStaticProviderInfo = {
+	modelOptionsFallback: (modelName) => extensiveModelOptionsFallback(modelName),
+	modelOptions: {},
+	providerReasoningIOSettings: {
+		// reasoning: we have no idea what endpoint they used, so we can't consistently parse out reasoning
+		input: { includeInPayload: openAICompatIncludeInPayloadReasoning },
+		output: { nameOfFieldInDelta: 'reasoning_content' },
+	},
+}
+const openaiCompatible7: VoidStaticProviderInfo = {
+	modelOptionsFallback: (modelName) => extensiveModelOptionsFallback(modelName),
+	modelOptions: {},
+	providerReasoningIOSettings: {
+		// reasoning: we have no idea what endpoint they used, so we can't consistently parse out reasoning
+		input: { includeInPayload: openAICompatIncludeInPayloadReasoning },
+		output: { nameOfFieldInDelta: 'reasoning_content' },
+	},
+}
+const openaiCompatible8: VoidStaticProviderInfo = {
+	modelOptionsFallback: (modelName) => extensiveModelOptionsFallback(modelName),
+	modelOptions: {},
+	providerReasoningIOSettings: {
+		// reasoning: we have no idea what endpoint they used, so we can't consistently parse out reasoning
+		input: { includeInPayload: openAICompatIncludeInPayloadReasoning },
+		output: { nameOfFieldInDelta: 'reasoning_content' },
+	},
+}
+
+const openaiCompatible9: VoidStaticProviderInfo = {
+	modelOptionsFallback: (modelName) => extensiveModelOptionsFallback(modelName),
+	modelOptions: {},
+	providerReasoningIOSettings: {
+		// reasoning: we have no idea what endpoint they used, so we can't consistently parse out reasoning
+		input: { includeInPayload: openAICompatIncludeInPayloadReasoning },
+		output: { nameOfFieldInDelta: 'reasoning_content' },
+	},
+}
+
 const liteLLMSettings: VoidStaticProviderInfo = { // https://docs.litellm.ai/docs/reasoning_content
 	modelOptionsFallback: (modelName) => extensiveModelOptionsFallback(modelName, { downloadable: { sizeGb: 'not-known' } }),
 	modelOptions: {},
@@ -1466,6 +1595,14 @@ const modelSettingsOfProvider: { [providerName in ProviderName]: VoidStaticProvi
 	vLLM: vLLMSettings,
 	ollama: ollamaSettings,
 	openAICompatible: openaiCompatible,
+	openAICompatible2: openaiCompatible2,
+	openAICompatible3: openaiCompatible3,
+	openAICompatible4: openaiCompatible4,
+	openAICompatible5: openaiCompatible5,
+	openAICompatible6: openaiCompatible6,
+	openAICompatible7: openaiCompatible7,
+	openAICompatible8: openaiCompatible8,
+	openAICompatible9: openaiCompatible9,
 	mistral: mistralSettings,
 
 	liteLLM: liteLLMSettings,

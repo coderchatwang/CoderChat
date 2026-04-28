@@ -25,6 +25,50 @@ import { createDecorator, ServicesAccessor } from '../../../../platform/instanti
 import { Disposable } from '../../../../base/common/lifecycle.js'
 import { INotificationService } from '../../../../platform/notification/common/notification.js'
 
+// Browser-side proxy service for IVoidSCMService
+class BrowserSideVoidSCMService extends Disposable implements IVoidSCMService {
+	readonly _serviceBrand: undefined;
+	private readonly voidSCM: IVoidSCMService;
+
+	constructor(
+		@IMainProcessService mainProcessService: IMainProcessService
+	) {
+		super();
+		this.voidSCM = ProxyChannel.toService<IVoidSCMService>(mainProcessService.getChannel('void-channel-scm'));
+	}
+
+	gitStat(path: string): Promise<string> {
+		return this.voidSCM.gitStat(path);
+	}
+
+	gitSampledDiffs(path: string): Promise<string> {
+		return this.voidSCM.gitSampledDiffs(path);
+	}
+
+	gitBranch(path: string): Promise<string> {
+		return this.voidSCM.gitBranch(path);
+	}
+
+	gitLog(path: string): Promise<string> {
+		return this.voidSCM.gitLog(path);
+	}
+
+	gitRemote(path: string): Promise<string> {
+		return this.voidSCM.gitRemote(path);
+	}
+
+	gitHeadSha(path: string): Promise<string> {
+		return this.voidSCM.gitHeadSha(path);
+	}
+
+	gitStatus(path: string): Promise<string> {
+		return this.voidSCM.gitStatus(path);
+	}
+}
+
+// Register IVoidSCMService in browser process
+registerSingleton(IVoidSCMService, BrowserSideVoidSCMService, InstantiationType.Eager);
+
 interface ModelOptions {
 	modelSelection: ModelSelection | null
 	modelSelectionOptions?: ModelSelectionOptions
@@ -94,7 +138,7 @@ class GenerateCommitMessageService extends Disposable implements IGenerateCommit
 
 				const prompt = gitCommitMessage_userMessage(stat, sampledDiffs, branch, log)
 
-				const simpleMessages = [{ role: 'user', content: prompt } as const]
+				const simpleMessages = [{ role: 'user' as const, content: prompt, images: null }]
 				const { messages, separateSystemMessage } = this.convertToLLMMessageService.prepareLLMSimpleMessages({
 					simpleMessages,
 					systemMessage: gitCommitMessage_systemMessage,
@@ -159,7 +203,7 @@ class GenerateCommitMessageService extends Disposable implements IGenerateCommit
 				onAbort: () => {
 					reject(new CancellationError())
 				},
-				logging: { loggingName: 'VoidSCM - Commit Message' },
+				logging: { loggingName: 'CoderChatSCM - Commit Message' },
 			})
 		})
 	}
@@ -186,9 +230,9 @@ class GenerateCommitMessageAction extends Action2 {
 	constructor() {
 		super({
 			id: 'void.generateCommitMessageAction',
-			title: localize2('voidCommitMessagePrompt', 'Void: Generate Commit Message'),
+			title: localize2('voidCommitMessagePrompt', 'CoderChat: Generate Commit Message'),
 			icon: ThemeIcon.fromId('sparkle'),
-			tooltip: localize2('voidCommitMessagePromptTooltip', 'Void: Generate Commit Message'),
+			tooltip: localize2('voidCommitMessagePromptTooltip', 'CoderChat: Generate Commit Message'),
 			f1: true,
 			menu: [{
 				id: MenuId.SCMInputBox,
@@ -208,9 +252,9 @@ class LoadingGenerateCommitMessageAction extends Action2 {
 	constructor() {
 		super({
 			id: 'void.loadingGenerateCommitMessageAction',
-			title: localize2('voidCommitMessagePromptCancel', 'Void: Cancel Commit Message Generation'),
+			title: localize2('voidCommitMessagePromptCancel', 'CoderChat: Cancel Commit Message Generation'),
 			icon: ThemeIcon.fromId('stop-circle'),
-			tooltip: localize2('voidCommitMessagePromptCancelTooltip', 'Void: Cancel Commit Message Generation'),
+			tooltip: localize2('voidCommitMessagePromptCancelTooltip', 'CoderChat: Cancel Commit Message Generation'),
 			f1: false, //Having a cancel command in the command palette is more confusing than useful.
 			menu: [{
 				id: MenuId.SCMInputBox,

@@ -7,6 +7,7 @@ import React, { useEffect, useState } from 'react';
 import { AlertCircle, ChevronDown, ChevronUp, X } from 'lucide-react';
 import { useSettingsState } from '../util/services.js';
 import { errorDetails } from '../../../../common/sendLLMMessageTypes.js';
+import { useVoidChatI18n } from '../util/i18n.js';
 
 
 export const ErrorDisplay = ({
@@ -20,6 +21,7 @@ export const ErrorDisplay = ({
 	onDismiss: (() => void) | null,
 	showDismiss?: boolean,
 }) => {
+	const t = useVoidChatI18n()
 	const [isExpanded, setIsExpanded] = useState(false);
 
 	const details = errorDetails(fullError)
@@ -36,7 +38,7 @@ export const ErrorDisplay = ({
 					<div className='flex-1'>
 						<h3 className='font-semibold text-red-800'>
 							{/* eg Error */}
-							Error
+							{t.error()}
 						</h3>
 						<p className='text-red-700 mt-1'>
 							{/* eg Something went wrong */}
@@ -71,7 +73,7 @@ export const ErrorDisplay = ({
 			{isExpanded && details && (
 				<div className='mt-4 space-y-3 border-t border-red-200 pt-3 overflow-auto'>
 					<div>
-						<span className='font-semibold text-red-800'>Full Error: </span>
+						<span className='font-semibold text-red-800'>{t.fullError()}: </span>
 						<pre className='text-red-700'>{details}</pre>
 					</div>
 				</div>

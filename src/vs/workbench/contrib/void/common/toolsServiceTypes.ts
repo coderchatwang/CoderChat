@@ -18,7 +18,7 @@ export type ShallowDirectoryItem = {
 }
 
 
-export const approvalTypeOfBuiltinToolName: Partial<{ [T in BuiltinToolName]?: 'edits' | 'terminal' | 'MCP tools' }> = {
+export const approvalTypeOfBuiltinToolName: Partial<{ [T in BuiltinToolName]?: 'edits' | 'terminal' | 'MCP tools' | 'questions' }> = {
 	'create_file_or_folder': 'edits',
 	'delete_file_or_folder': 'edits',
 	'rewrite_file': 'edits',
@@ -27,6 +27,7 @@ export const approvalTypeOfBuiltinToolName: Partial<{ [T in BuiltinToolName]?: '
 	'run_persistent_command': 'terminal',
 	'open_persistent_terminal': 'terminal',
 	'kill_persistent_terminal': 'terminal',
+	'ask_user_question': 'questions',
 }
 
 
@@ -60,6 +61,23 @@ export type BuiltinToolCallParams = {
 	'open_persistent_terminal': { cwd: string | null },
 	'run_persistent_command': { command: string; persistentTerminalId: string },
 	'kill_persistent_terminal': { persistentTerminalId: string },
+	// ---
+	'xml_escape': { uri: URI, escapeAll: boolean },
+	// ---
+	'ask_user_question': { questions: AskUserQuestionItem[], answers: Record<string, string> },
+}
+
+// Ask user question types
+export type AskUserQuestionOption = {
+	label: string
+	description: string
+}
+
+export type AskUserQuestionItem = {
+	question: string
+	header: string
+	options: AskUserQuestionOption[]
+	multiSelect: boolean
 }
 
 // RESULT OF TOOL CALL
@@ -81,6 +99,10 @@ export type BuiltinToolResultType = {
 	'run_persistent_command': { result: string; resolveReason: TerminalResolveReason; },
 	'open_persistent_terminal': { persistentTerminalId: string },
 	'kill_persistent_terminal': {},
+	// ---
+	'xml_escape': { escapedContent: string; originalLength: number; escapedLength: number; charactersEscaped: number },
+	// ---
+	'ask_user_question': { answers: Record<string, string | string[]> },
 }
 
 

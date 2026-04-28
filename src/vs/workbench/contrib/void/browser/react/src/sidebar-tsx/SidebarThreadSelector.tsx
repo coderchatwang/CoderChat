@@ -9,11 +9,13 @@ import { useAccessor, useChatThreadsState, useChatThreadsStreamState, useFullCha
 import { IconX } from './SidebarChat.js';
 import { Check, Copy, Icon, LoaderCircle, MessageCircleQuestion, Trash2, UserCheck, X } from 'lucide-react';
 import { IsRunningType, ThreadType } from '../../../chatThreadService.js';
+import { useVoidChatI18n } from '../util/i18n.js';
 
 
 const numInitialThreads = 3
 
 export const PastThreadsList = ({ className = '' }: { className?: string }) => {
+	const t = useVoidChatI18n()
 	const [showAll, setShowAll] = useState(false);
 
 	const [hoveredIdx, setHoveredIdx] = useState<number | null>(null)
@@ -30,7 +32,7 @@ export const PastThreadsList = ({ className = '' }: { className?: string }) => {
 	}
 
 	if (!allThreads) {
-		return <div key="error" className="p-1">{`Error accessing chat history.`}</div>;
+		return <div key="error" className="p-1">{t.errorAccessingChatHistory()}</div>;
 	}
 
 	// sorted by most recent to least recent
@@ -49,7 +51,7 @@ export const PastThreadsList = ({ className = '' }: { className?: string }) => {
 				: displayThreads.map((threadId, i) => {
 					const pastThread = allThreads[threadId];
 					if (!pastThread) {
-						return <div key={i} className="p-1">{`Error accessing chat history.`}</div>;
+						return <div key={i} className="p-1">{t.errorAccessingChatHistory()}</div>;
 					}
 
 					return (
@@ -70,7 +72,7 @@ export const PastThreadsList = ({ className = '' }: { className?: string }) => {
 					className="text-void-fg-3 opacity-80 hover:opacity-100 hover:brightness-115 cursor-pointer p-1 text-xs"
 					onClick={() => setShowAll(true)}
 				>
-					Show {sortedThreadIds.length - numInitialThreads} more...
+					{t.showMore(sortedThreadIds.length - numInitialThreads)}
 				</div>
 			)}
 			{hasMoreThreads && showAll && (
@@ -78,7 +80,7 @@ export const PastThreadsList = ({ className = '' }: { className?: string }) => {
 					className="text-void-fg-3 opacity-80 hover:opacity-100 hover:brightness-115 cursor-pointer p-1 text-xs"
 					onClick={() => setShowAll(false)}
 				>
-					Show less
+					{t.showLess()}
 				</div>
 			)}
 		</div>
@@ -90,16 +92,16 @@ export const PastThreadsList = ({ className = '' }: { className?: string }) => {
 
 
 // Format date to display as today, yesterday, or date
-const formatDate = (date: Date) => {
+const formatDate = (date: Date, t: ReturnType<typeof useVoidChatI18n>) => {
 	const now = new Date();
 	const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 	const yesterday = new Date(today);
 	yesterday.setDate(yesterday.getDate() - 1);
 
 	if (date >= today) {
-		return 'Today';
+		return t.today();
 	} else if (date >= yesterday) {
-		return 'Yesterday';
+		return t.yesterday();
 	} else {
 		return `${date.toLocaleString('default', { month: 'short' })} ${date.getDate()}`;
 	}
@@ -116,6 +118,7 @@ const formatTime = (date: Date) => {
 
 
 const DuplicateButton = ({ threadId }: { threadId: string }) => {
+	const t = useVoidChatI18n()
 	const accessor = useAccessor()
 	const chatThreadsService = accessor.get('IChatThreadService')
 	return <IconShell1
@@ -124,13 +127,14 @@ const DuplicateButton = ({ threadId }: { threadId: string }) => {
 		onClick={() => { chatThreadsService.duplicateThread(threadId); }}
 		data-tooltip-id='void-tooltip'
 		data-tooltip-place='top'
-		data-tooltip-content='Duplicate thread'
+		data-tooltip-content={t.duplicateThread()}
 	>
 	</IconShell1>
 
 }
 
 const TrashButton = ({ threadId }: { threadId: string }) => {
+	const t = useVoidChatI18n()
 
 	const accessor = useAccessor()
 	const chatThreadsService = accessor.get('IChatThreadService')
@@ -146,7 +150,7 @@ const TrashButton = ({ threadId }: { threadId: string }) => {
 				onClick={() => { setIsTrashPressed(false); }}
 				data-tooltip-id='void-tooltip'
 				data-tooltip-place='top'
-				data-tooltip-content='Cancel'
+				data-tooltip-content={t.cancel()}
 			/>
 			<IconShell1
 				Icon={Check}
@@ -154,7 +158,7 @@ const TrashButton = ({ threadId }: { threadId: string }) => {
 				onClick={() => { chatThreadsService.deleteThread(threadId); setIsTrashPressed(false); }}
 				data-tooltip-id='void-tooltip'
 				data-tooltip-place='top'
-				data-tooltip-content='Confirm'
+				data-tooltip-content={t.confirm()}
 			/>
 		</div>
 		: <IconShell1
@@ -163,7 +167,7 @@ const TrashButton = ({ threadId }: { threadId: string }) => {
 			onClick={() => { setIsTrashPressed(true); }}
 			data-tooltip-id='void-tooltip'
 			data-tooltip-place='top'
-			data-tooltip-content='Delete thread'
+			data-tooltip-content={t.deleteThread()}
 		/>
 	)
 }
@@ -178,6 +182,7 @@ const PastThreadElement = ({ pastThread, idx, hoveredIdx, setHoveredIdx, isRunni
 
 ) => {
 
+	const t = useVoidChatI18n()
 
 	const accessor = useAccessor()
 	const chatThreadsService = accessor.get('IChatThreadService')
@@ -226,7 +231,7 @@ const PastThreadElement = ({ pastThread, idx, hoveredIdx, setHoveredIdx, isRunni
 	>
 		<span className='opacity-60'>{numMessages}</span>
 		{` `}
-		{formatDate(new Date(pastThread.lastModified))}
+		{formatDate(new Date(pastThread.lastModified), t)}
 		{/* {` messages `} */}
 	</span>
 
@@ -252,7 +257,7 @@ const PastThreadElement = ({ pastThread, idx, hoveredIdx, setHoveredIdx, isRunni
 				{/* name */}
 				<span className="truncate overflow-hidden text-ellipsis"
 					data-tooltip-id='void-tooltip'
-					data-tooltip-content={numMessages + ' messages'}
+					data-tooltip-content={t.messagesCount(numMessages)}
 					data-tooltip-place='top'
 				>{firstMsg}</span>
 

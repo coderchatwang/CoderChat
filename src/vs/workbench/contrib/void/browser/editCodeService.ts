@@ -585,7 +585,7 @@ class EditCodeService extends Disposable implements IEditCodeService {
 							offsetLines = 1
 						}
 					}
-					else { throw new Error('Void 1') }
+					else { throw new Error('CoderChat 1') }
 
 					const buttonsWidget = this._instantiationService.createInstance(AcceptRejectInlineWidget, {
 						editor,
@@ -743,7 +743,7 @@ class EditCodeService extends Disposable implements IEditCodeService {
 		const elt: IUndoRedoElement = {
 			type: UndoRedoElementType.Resource,
 			resource: uri,
-			label: 'Void Agent',
+			label: 'CoderChat Agent',
 			code: 'undoredo.editCode',
 			undo: async () => { opts?.onWillUndo?.(); await this._restoreVoidFileSnapshot(uri, beforeSnapshot) },
 			redo: async () => { if (afterSnapshot) await this._restoreVoidFileSnapshot(uri, afterSnapshot) }
@@ -1392,9 +1392,9 @@ class EditCodeService extends Disposable implements IEditCodeService {
 		let messages: LLMChatMessage[]
 		let separateSystemMessage: string | undefined
 		if (from === 'ClickApply') {
-			const { messages: a, separateSystemMessage: b } = this._convertToLLMMessageService.prepareLLMSimpleMessages({
+		const { messages: a, separateSystemMessage: b } = this._convertToLLMMessageService.prepareLLMSimpleMessages({
 				systemMessage: rewriteCode_systemMessage,
-				simpleMessages: [{ role: 'user', content: rewriteCode_userMessage({ originalCode, applyStr: opts.applyStr, language }), }],
+				simpleMessages: [{ role: 'user', content: rewriteCode_userMessage({ originalCode, applyStr: opts.applyStr, language }), images: null }],
 				featureName,
 				modelSelection,
 			})
@@ -1413,7 +1413,7 @@ class EditCodeService extends Disposable implements IEditCodeService {
 
 			const { messages: a, separateSystemMessage: b } = this._convertToLLMMessageService.prepareLLMSimpleMessages({
 				systemMessage: ctrlKStream_systemMessage({ quickEditFIMTags: quickEditFIMTags }),
-				simpleMessages: [{ role: 'user', content: userContent, }],
+				simpleMessages: [{ role: 'user', content: userContent, images: null }],
 				featureName,
 				modelSelection,
 			})
@@ -1480,7 +1480,7 @@ class EditCodeService extends Disposable implements IEditCodeService {
 			else if (from === 'ClickApply') {
 				return extractCodeFromRegular({ text: fullText, recentlyAddedTextLen })
 			}
-			throw new Error('Void 1')
+		throw new Error('CoderChat 1')
 		}
 
 		// refresh now in case onText takes a while to get 1st message
@@ -1690,7 +1690,7 @@ class EditCodeService extends Disposable implements IEditCodeService {
 
 		const { messages, separateSystemMessage: separateSystemMessage } = this._convertToLLMMessageService.prepareLLMSimpleMessages({
 			systemMessage: searchReplaceGivenDescription_systemMessage,
-			simpleMessages: [{ role: 'user', content: userMessageContent, }],
+			simpleMessages: [{ role: 'user', content: userMessageContent, images: null }],
 			featureName,
 			modelSelection,
 		})

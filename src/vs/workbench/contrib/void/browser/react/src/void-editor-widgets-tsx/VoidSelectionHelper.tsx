@@ -13,6 +13,7 @@ import { useEffect, useState } from 'react';
 
 import { VoidSelectionHelperProps } from '../../../../../../contrib/void/browser/voidSelectionHelperWidget.js';
 import { VOID_OPEN_SETTINGS_ACTION_ID } from '../../../voidSettingsPane.js';
+import { useVoidChatI18n } from '../util/i18n.js';
 
 
 export const VoidSelectionHelperMain = (props: VoidSelectionHelperProps) => {
@@ -30,6 +31,7 @@ export const VoidSelectionHelperMain = (props: VoidSelectionHelperProps) => {
 
 const VoidSelectionHelper = ({ rerenderKey }: VoidSelectionHelperProps) => {
 
+	const t = useVoidChatI18n()
 
 	const accessor = useAccessor()
 	const keybindingService = accessor.get('IKeybindingService')
@@ -83,7 +85,7 @@ const VoidSelectionHelper = ({ rerenderKey }: VoidSelectionHelperProps) => {
 					setClickState('clickedOption');
 				}}
 			>
-				<span>Add to Chat</span>
+				<span>{t.addToChat()}</span>
 				<span className='ml-1 px-1 rounded bg-[var(--vscode-keybindingLabel-background)] text-[var(--vscode-keybindingLabel-foreground)] border border-[var(--vscode-keybindingLabel-border)]'>
 					{ctrlLKeybind.getLabel()}
 				</span>
@@ -103,7 +105,7 @@ const VoidSelectionHelper = ({ rerenderKey }: VoidSelectionHelperProps) => {
 					setClickState('clickedOption');
 				}}
 			>
-				<span className='ml-1'>Edit Inline</span>
+				<span className='ml-1'>{t.editInline()}</span>
 				<span className='ml-1 px-1 rounded bg-[var(--vscode-keybindingLabel-background)] text-[var(--vscode-keybindingLabel-foreground)] border border-[var(--vscode-keybindingLabel-border)]'>
 					{ctrlKKeybind.getLabel()}
 				</span>
@@ -137,7 +139,7 @@ const VoidSelectionHelper = ({ rerenderKey }: VoidSelectionHelperProps) => {
 				setClickState('clickedOption');
 			}}
 		>
-			Disable Suggestions?
+			{t.disableSuggestions()}
 		</div>
 
 		{dividerHTML}

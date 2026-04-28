@@ -16,7 +16,8 @@ export const mountFnGenerator = (Component: (params: any) => React.ReactNode) =>
 		return
 	}
 
-	const disposables = _registerServices(accessor)
+	// Register services globally (only happens once)
+	_registerServices(accessor)
 
 	const root = ReactDOM.createRoot(rootElement)
 
@@ -25,7 +26,8 @@ export const mountFnGenerator = (Component: (params: any) => React.ReactNode) =>
 	}
 	const dispose = () => {
 		root.unmount();
-		disposables.forEach(d => d.dispose());
+		// Note: we don't dispose the global service listeners here - they are shared across all widgets
+		// and should only be disposed when the extension is deactivated
 	}
 
 	rerender(props)

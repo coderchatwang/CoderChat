@@ -13,6 +13,35 @@ import { VOID_OPEN_SETTINGS_ACTION_ID, VOID_TOGGLE_SETTINGS_ACTION_ID } from '..
 import { modelFilterOfFeatureName, ModelOption } from '../../../../../../../workbench/contrib/void/common/voidSettingsService.js'
 import { WarningBox } from './WarningBox.js'
 import ErrorBoundary from '../sidebar-tsx/ErrorBoundary.js'
+import { useVoidChatI18n } from '../util/i18n.js'
+
+// Helper function to extract domain from URL
+const extractDomain = (url: string): string => {
+	try {
+		const parsed = new URL(url)
+		return parsed.hostname
+	} catch {
+		// If URL parsing fails, try to extract domain manually
+		const match = url.match(/^(?:https?:\/\/)?([^\/:?]+)/)
+		return match ? match[1] : url
+	}
+}
+
+// Helper function to get display detail for a model option
+const getDetailForOption = (option: ModelOption, settingsOfProvider: SettingsOfProvider): string => {
+	const { providerName } = option.selection
+
+	// Check if provider name contains "openAICompatible"
+	if (providerName.toLowerCase().includes('openaicompatible')) {
+		const endpoint = settingsOfProvider[providerName as ProviderName]?.endpoint
+		if (endpoint) {
+			const domain = extractDomain(endpoint)
+			return `${domain} - ${providerName}`
+		}
+	}
+
+	return providerName
+}
 
 const optionsEqual = (m1: ModelOption[], m2: ModelOption[]) => {
 	if (m1.length !== m2.length) return false
@@ -25,6 +54,7 @@ const optionsEqual = (m1: ModelOption[], m2: ModelOption[]) => {
 const ModelSelectBox = ({ options, featureName, className }: { options: ModelOption[], featureName: FeatureName, className: string }) => {
 	const accessor = useAccessor()
 	const voidSettingsService = accessor.get('IVoidSettingsService')
+	const settingsState = useSettingsState()
 
 	const selection = voidSettingsService.state.modelSelectionOfFeature[featureName]
 	const selectedOption = selection ? voidSettingsService.state._modelOptions.find(v => modelSelectionsEqual(v.selection, selection))! : options[0]
@@ -39,7 +69,7 @@ const ModelSelectBox = ({ options, featureName, className }: { options: ModelOpt
 		onChangeOption={onChangeOption}
 		getOptionDisplayName={(option) => option.selection.modelName}
 		getOptionDropdownName={(option) => option.selection.modelName}
-		getOptionDropdownDetail={(option) => option.selection.providerName}
+		getOptionDropdownDetail={(option) => getDetailForOption(option, settingsState.settingsOfProvider)}
 		getOptionsEqual={(a, b) => optionsEqual([a], [b])}
 		className={className}
 		matchInputWidth={false}
@@ -48,6 +78,7 @@ const ModelSelectBox = ({ options, featureName, className }: { options: ModelOpt
 
 
 const MemoizedModelDropdown = ({ featureName, className }: { featureName: FeatureName, className: string }) => {
+	const t = useVoidChatI18n();
 	const settingsState = useSettingsState()
 	const oldOptionsRef = useRef<ModelOption[]>([])
 	const [memoizedOptions, setMemoizedOptions] = useState(oldOptionsRef.current)
@@ -65,7 +96,7 @@ const MemoizedModelDropdown = ({ featureName, className }: { featureName: Featur
 	}, [settingsState._modelOptions, filter])
 
 	if (memoizedOptions.length === 0) { // Pretty sure this will never be reached unless filter is enabled
-		return <WarningBox text={emptyMessage?.message || 'No models available'} />
+		return <WarningBox text={emptyMessage?.message || t.noModelsAvailable()} />
 	}
 
 	return <ModelSelectBox featureName={featureName} options={memoizedOptions} className={className} />
@@ -78,6 +109,7 @@ export const ModelDropdown = ({ featureName, className }: { featureName: Feature
 	const accessor = useAccessor()
 	const commandService = accessor.get('ICommandService')
 
+	const t = useVoidChatI18n();
 	const openSettings = () => { commandService.executeCommand(VOID_OPEN_SETTINGS_ACTION_ID); };
 
 
@@ -87,10 +119,10 @@ export const ModelDropdown = ({ featureName, className }: { featureName: Feature
 	if (isDisabled)
 		return <WarningBox onClick={openSettings} text={
 			emptyMessage && emptyMessage.priority === 'always' ? emptyMessage.message :
-				isDisabled === 'needToEnableModel' ? 'Enable a model'
-					: isDisabled === 'addModel' ? 'Add a model'
-						: (isDisabled === 'addProvider' || isDisabled === 'notFilledIn' || isDisabled === 'providerNotAutoDetected') ? 'Provider required'
-							: 'Provider required'
+				isDisabled === 'needToEnableModel' ? t.enableAModel()
+					: isDisabled === 'addModel' ? t.addAModel()
+						: (isDisabled === 'addProvider' || isDisabled === 'notFilledIn' || isDisabled === 'providerNotAutoDetected') ? t.providerRequired()
+							: t.providerRequired()
 		} />
 
 	return <ErrorBoundary>

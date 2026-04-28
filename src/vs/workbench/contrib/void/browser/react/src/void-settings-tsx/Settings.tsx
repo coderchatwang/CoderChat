@@ -23,6 +23,7 @@ import { MCPServer } from '../../../../common/mcpServiceTypes.js';
 import { useMCPServiceState } from '../util/services.js';
 import { OPT_OUT_KEY } from '../../../../common/storageKeys.js';
 import { StorageScope, StorageTarget } from '../../../../../../../platform/storage/common/storage.js';
+import { useVoidChatI18n } from '../util/i18n.js';
 
 type Tab =
 	| 'models'
@@ -46,6 +47,7 @@ const ButtonLeftTextRightOption = ({ text, leftButton }: { text: string, leftBut
 
 // models
 const RefreshModelButton = ({ providerName }: { providerName: RefreshableProviderName }) => {
+	const t = useVoidChatI18n();
 
 	const refreshModelState = useRefreshModelState()
 
@@ -89,9 +91,9 @@ const RefreshModelButton = ({ providerName }: { providerName: RefreshableProvide
 			</button>
 		}
 
-		text={justFinished === 'finished' ? `${providerTitle} Models are up-to-date!`
-			: justFinished === 'error' ? `${providerTitle} not found!`
-				: `Manually refresh ${providerTitle} models.`}
+		text={justFinished === 'finished' ? t.modelsAreUpToDate(providerTitle)
+			: justFinished === 'error' ? t.providerNotFound(providerTitle)
+				: t.manuallyRefreshModels(providerTitle)}
 	/>
 }
 
@@ -170,6 +172,7 @@ const AddButton = ({ disabled, text = 'Add', ...props }: { disabled?: boolean, t
 
 // ConfirmButton prompts for a second click to confirm an action, cancels if clicking outside
 const ConfirmButton = ({ children, onConfirm, className }: { children: React.ReactNode, onConfirm: () => void, className?: string }) => {
+	const t = useVoidChatI18n();
 	const [confirm, setConfirm] = useState(false);
 	const ref = useRef<HTMLDivElement>(null);
 	useEffect(() => {
@@ -192,7 +195,7 @@ const ConfirmButton = ({ children, onConfirm, className }: { children: React.Rea
 					setConfirm(false);
 				}
 			}}>
-				{confirm ? `Confirm Reset` : children}
+				{confirm ? t.confirmReset() : children}
 			</VoidButtonBgDarken>
 		</div>
 	);
@@ -214,6 +217,7 @@ const SimpleModelSettingsDialog = ({
 	onClose: () => void;
 	modelInfo: { modelName: string; providerName: ProviderName; type: 'autodetected' | 'custom' | 'default' } | null;
 }) => {
+	const t = useVoidChatI18n();
 	if (!isOpen || !modelInfo) return null;
 
 	const { modelName, providerName, type } = modelInfo;
@@ -321,17 +325,17 @@ const SimpleModelSettingsDialog = ({
 
 				{/* Display model recognition status */}
 				<div className="text-sm text-void-fg-3 mb-4">
-					{type === 'default' ? `${modelName} comes packaged with Void, so you shouldn't need to change these settings.`
+					{type === 'default' ? `${modelName} comes packaged with CoderChat, so you shouldn't need to change these settings.`
 						: isUnrecognizedModel
-							? `Model not recognized by Void.`
-							: `Void recognizes ${modelName} ("${recognizedModelName}").`}
+							? `Model not recognized by CoderChat.`
+							: `CoderChat recognizes ${modelName} ("${recognizedModelName}").`}
 				</div>
 
 
 				{/* override toggle */}
 				<div className="flex items-center gap-2 mb-4">
 					<VoidSwitch size='xs' value={overrideEnabled} onChange={setOverrideEnabled} />
-					<span className="text-void-fg-3 text-sm">Override model defaults</span>
+					<span className="text-void-fg-3 text-sm">{t.overrideModelDefaults()}</span>
 				</div>
 
 				{/* Informational link */}
@@ -354,13 +358,13 @@ const SimpleModelSettingsDialog = ({
 
 				<div className="flex justify-end gap-2 mt-4">
 					<VoidButtonBgDarken onClick={onClose} className="px-3 py-1">
-						Cancel
+						{t.cancel()}
 					</VoidButtonBgDarken>
 					<VoidButtonBgDarken
 						onClick={onSave}
 						className="px-3 py-1 bg-[#0e70c0] text-white"
 					>
-						Save
+						{t.save()}
 					</VoidButtonBgDarken>
 				</div>
 			</div>
@@ -372,6 +376,7 @@ const SimpleModelSettingsDialog = ({
 
 
 export const ModelDump = ({ filteredProviders }: { filteredProviders?: ProviderName[] }) => {
+	const t = useVoidChatI18n();
 	const accessor = useAccessor()
 	const settingsStateService = accessor.get('IVoidSettingsService')
 	const settingsState = useSettingsState()
@@ -410,17 +415,17 @@ export const ModelDump = ({ filteredProviders }: { filteredProviders?: ProviderN
 	// Add model handler
 	const handleAddModel = () => {
 		if (!userChosenProviderName) {
-			setErrorString('Please select a provider.');
+			setErrorString(t.pleaseSelectProvider());
 			return;
 		}
 		if (!modelName) {
-			setErrorString('Please enter a model name.');
+			setErrorString(t.pleaseEnterModelName());
 			return;
 		}
 
 		// Check if model already exists
 		if (settingsState.settingsOfProvider[userChosenProviderName].models.find(m => m.modelName === modelName)) {
-			setErrorString(`This model already exists.`);
+			setErrorString(t.modelAlreadyExists());
 			return;
 		}
 
@@ -447,16 +452,16 @@ export const ModelDump = ({ filteredProviders }: { filteredProviders?: ProviderN
 			const value = disabled ? false : !isHidden
 
 			const tooltipName = (
-				disabled ? `Add ${providerTitle} to enable`
-					: value === true ? 'Show in Dropdown'
-						: 'Hide from Dropdown'
+				disabled ? t.addToEnable(providerTitle)
+					: value === true ? t.showInDropdown()
+						: t.hideFromDropdown()
 			)
 
 
 			const detailAboutModel = type === 'autodetected' ?
-				<Asterisk size={14} className="inline-block align-text-top brightness-115 stroke-[2] text-[#0e70c0]" data-tooltip-id='void-tooltip' data-tooltip-place='right' data-tooltip-content='Detected locally' />
+				<Asterisk size={14} className="inline-block align-text-top brightness-115 stroke-[2] text-[#0e70c0]" data-tooltip-id='void-tooltip' data-tooltip-place='right' data-tooltip-content={t.detectedLocally()} />
 				: type === 'custom' ?
-					<Asterisk size={14} className="inline-block align-text-top brightness-115 stroke-[2] text-[#0e70c0]" data-tooltip-id='void-tooltip' data-tooltip-place='right' data-tooltip-content='Custom model' />
+					<Asterisk size={14} className="inline-block align-text-top brightness-115 stroke-[2] text-[#0e70c0]" data-tooltip-id='void-tooltip' data-tooltip-place='right' data-tooltip-content={t.customModel()} />
 					: undefined
 
 			const hasOverrides = !!settingsState.overridesOfModel?.[providerName]?.[modelName]
@@ -481,7 +486,7 @@ export const ModelDump = ({ filteredProviders }: { filteredProviders?: ProviderN
 								onClick={() => { setOpenSettingsModel({ modelName, providerName, type }) }}
 								data-tooltip-id='void-tooltip'
 								data-tooltip-place='right'
-								data-tooltip-content='Advanced Settings'
+								data-tooltip-content={t.advancedSettings()}
 								className={`${hasOverrides ? '' : 'opacity-0 group-hover:opacity-100'} transition-opacity`}
 							>
 								<Plus size={12} className="text-void-fg-3 opacity-50" />
@@ -511,7 +516,7 @@ export const ModelDump = ({ filteredProviders }: { filteredProviders?: ProviderN
 							onClick={() => { settingsStateService.deleteModel(providerName, modelName); }}
 							data-tooltip-id='void-tooltip'
 							data-tooltip-place='right'
-							data-tooltip-content='Delete'
+							data-tooltip-content={t.delete()}
 							className={`${hasOverrides ? '' : 'opacity-0 group-hover:opacity-100'} transition-opacity`}
 						>
 							<X size={12} className="text-void-fg-3 opacity-50" />
@@ -524,7 +529,7 @@ export const ModelDump = ({ filteredProviders }: { filteredProviders?: ProviderN
 		{/* Add Model Section */}
 		{showCheckmark ? (
 			<div className="mt-4">
-				<AnimatedCheckmarkButton text='Added' className="bg-[#0e70c0] text-white px-3 py-1 rounded-sm" />
+				<AnimatedCheckmarkButton text={t.added()} className="bg-[#0e70c0] text-white px-3 py-1 rounded-sm" />
 			</div>
 		) : isAddModelOpen ? (
 			<div className="mt-4">
@@ -536,8 +541,8 @@ export const ModelDump = ({ filteredProviders }: { filteredProviders?: ProviderN
 							options={providersToShow}
 							selectedOption={userChosenProviderName}
 							onChangeOption={(pn) => setUserChosenProviderName(pn)}
-							getOptionDisplayName={(pn) => pn ? displayInfoOfProviderName(pn).title : 'Provider Name'}
-							getOptionDropdownName={(pn) => pn ? displayInfoOfProviderName(pn).title : 'Provider Name'}
+							getOptionDisplayName={(pn) => pn ? displayInfoOfProviderName(pn).title : t.providerName()}
+							getOptionDropdownName={(pn) => pn ? displayInfoOfProviderName(pn).title : t.providerName()}
 							getOptionsEqual={(a, b) => a === b}
 							className="max-w-32 mx-2 w-full resize-none bg-void-bg-1 text-void-fg-1 placeholder:text-void-fg-3 border border-void-border-2 focus:border-void-border-1 py-1 px-2 rounded"
 							arrowTouchesText={false}
@@ -550,7 +555,7 @@ export const ModelDump = ({ filteredProviders }: { filteredProviders?: ProviderN
 							value={modelName}
 							compact={true}
 							onChangeValue={setModelName}
-							placeholder='Model Name'
+							placeholder={t.modelName()}
 							className='max-w-32'
 						/>
 					</ErrorBoundary>
@@ -592,7 +597,7 @@ export const ModelDump = ({ filteredProviders }: { filteredProviders?: ProviderN
 			>
 				<div className="flex items-center gap-1">
 					<Plus size={16} />
-					<span>Add a model</span>
+					<span>{t.addAModel()}</span>
 				</div>
 			</div>
 		)}
@@ -692,6 +697,7 @@ const ProviderSetting = ({ providerName, settingName, subTextMd }: { providerNam
 
 
 export const SettingsForProvider = ({ providerName, showProviderTitle, showProviderSuggestions }: { providerName: ProviderName, showProviderTitle: boolean, showProviderSuggestions: boolean }) => {
+	const t = useVoidChatI18n();
 	const voidSettingsState = useSettingsState()
 
 	const needsModel = isProviderNameDisabled(providerName, voidSettingsState) === 'addModel'
@@ -737,7 +743,7 @@ export const SettingsForProvider = ({ providerName, showProviderTitle, showProvi
 			{showProviderSuggestions && needsModel ?
 				providerName === 'ollama' ?
 					<WarningBox className="pl-2 mb-4" text={`Please install an Ollama model. We'll auto-detect it.`} />
-					: <WarningBox className="pl-2 mb-4" text={`Please add a model for ${providerTitle} (Models section).`} />
+					: <WarningBox className="pl-2 mb-4" text={t.pleaseAddModel(providerTitle)} />
 				: null}
 		</div>
 	</div >
@@ -797,6 +803,7 @@ export const AIInstructionsBox = () => {
 }
 
 const FastApplyMethodDropdown = () => {
+	const t = useVoidChatI18n();
 	const accessor = useAccessor()
 	const voidSettingsService = accessor.get('IVoidSettingsService')
 
@@ -813,7 +820,7 @@ const FastApplyMethodDropdown = () => {
 		onChangeOption={onChangeOption}
 		getOptionDisplayName={(val) => val ? 'Fast Apply' : 'Slow Apply'}
 		getOptionDropdownName={(val) => val ? 'Fast Apply' : 'Slow Apply'}
-		getOptionDropdownDetail={(val) => val ? 'Output Search/Replace blocks' : 'Rewrite whole files'}
+		getOptionDropdownDetail={(val) => val ? t.outputSearchReplace() : t.rewriteWholeFiles()}
 		getOptionsEqual={(a, b) => a === b}
 	/>
 
@@ -837,13 +844,14 @@ export const OllamaSetupInstructions = ({ sayWeAutoDetect }: { sayWeAutoDetect?:
 
 
 const RedoOnboardingButton = ({ className }: { className?: string }) => {
+	const t = useVoidChatI18n();
 	const accessor = useAccessor()
 	const voidSettingsService = accessor.get('IVoidSettingsService')
 	return <div
 		className={`text-void-fg-4 flex flex-nowrap text-nowrap items-center hover:brightness-110 cursor-pointer ${className}`}
 		onClick={() => { voidSettingsService.setGlobalSetting('isOnboardingComplete', false) }}
 	>
-		See onboarding screen?
+		{t.seeOnboardingScreen()}
 	</div>
 
 }
@@ -881,6 +889,7 @@ export const ToolApprovalTypeSwitch = ({ approvalType, size, desc }: { approvalT
 
 
 export const OneClickSwitchButton = ({ fromEditor = 'VS Code', className = '' }: { fromEditor?: TransferEditorType, className?: string }) => {
+	const t = useVoidChatI18n();
 	const accessor = useAccessor()
 	const extensionTransferService = accessor.get('IExtensionTransferService')
 
@@ -908,9 +917,9 @@ export const OneClickSwitchButton = ({ fromEditor = 'VS Code', className = '' }:
 
 	return <>
 		<VoidButtonBgDarken className={`max-w-48 p-4 ${className}`} disabled={transferState.type !== 'done'} onClick={onClick}>
-			{transferState.type === 'done' ? `Transfer from ${fromEditor}`
-				: transferState.type === 'loading' ? <span className='text-nowrap flex flex-nowrap'>Transferring<IconLoading /></span>
-					: transferState.type === 'justfinished' ? <AnimatedCheckmarkButton text='Settings Transferred' className='bg-none' />
+			{transferState.type === 'done' ? t.transferFrom(fromEditor)
+				: transferState.type === 'loading' ? <span className='text-nowrap flex flex-nowrap'>{t.transferring()}<IconLoading /></span>
+					: transferState.type === 'justfinished' ? <AnimatedCheckmarkButton text={t.settingsTransferred()} className='bg-none' />
 						: null
 			}
 		</VoidButtonBgDarken>
@@ -923,6 +932,7 @@ export const OneClickSwitchButton = ({ fromEditor = 'VS Code', className = '' }:
 
 // MCP Server component
 const MCPServerComponent = ({ name, server }: { name: string, server: MCPServer }) => {
+	const t = useVoidChatI18n();
 	const accessor = useAccessor();
 	const mcpService = accessor.get('IMCPService');
 
@@ -976,7 +986,7 @@ const MCPServerComponent = ({ name, server }: { name: string, server: MCPServer 
 								</span>
 							))
 						) : (
-							<span className="text-xs text-void-fg-3">No tools available</span>
+							<span className="text-xs text-void-fg-3">{t.noToolsAvailable()}</span>
 						)}
 					</div>
 				</div>
@@ -985,7 +995,7 @@ const MCPServerComponent = ({ name, server }: { name: string, server: MCPServer 
 			{/* Command badge */}
 			{isOn && server.command && (
 				<div className="mt-3">
-					<div className="text-xs text-void-fg-3 mb-1">Command:</div>
+					<div className="text-xs text-void-fg-3 mb-1">{t.command()}</div>
 					<div className="px-2 py-1 bg-void-bg-2 text-xs font-mono overflow-x-auto whitespace-nowrap text-void-fg-2 rounded-sm">
 						{server.command}
 					</div>
@@ -1004,6 +1014,7 @@ const MCPServerComponent = ({ name, server }: { name: string, server: MCPServer 
 
 // Main component that renders the list of servers
 const MCPServersList = () => {
+	const t = useVoidChatI18n();
 	const mcpServiceState = useMCPServiceState()
 
 	let content: React.ReactNode
@@ -1016,7 +1027,7 @@ const MCPServersList = () => {
 		const entries = Object.entries(mcpServiceState.mcpServerOfName)
 		if (entries.length === 0) {
 			content = <div className="text-void-fg-3 text-sm mt-2">
-				No servers found
+				{t.noServersFound()}
 			</div>
 		}
 		else {
@@ -1030,19 +1041,20 @@ const MCPServersList = () => {
 };
 
 export const Settings = () => {
+	const t = useVoidChatI18n();
 	const isDark = useIsDark()
 	// ─── sidebar nav ──────────────────────────
 	const [selectedSection, setSelectedSection] =
 		useState<Tab>('models');
 
 	const navItems: { tab: Tab; label: string }[] = [
-		{ tab: 'models', label: 'Models' },
-		{ tab: 'localProviders', label: 'Local Providers' },
-		{ tab: 'providers', label: 'Main Providers' },
-		{ tab: 'featureOptions', label: 'Feature Options' },
-		{ tab: 'general', label: 'General' },
-		{ tab: 'mcp', label: 'MCP' },
-		{ tab: 'all', label: 'All Settings' },
+		{ tab: 'models', label: t.models() },
+		{ tab: 'localProviders', label: t.localProviders() },
+		{ tab: 'providers', label: t.mainProviders() },
+		{ tab: 'featureOptions', label: t.featureOptions() },
+		{ tab: 'general', label: t.general() },
+		{ tab: 'mcp', label: t.mcp() },
+		{ tab: 'all', label: t.allSettings() },
 	];
 	const shouldShowTab = (tab: Tab) => selectedSection === 'all' || selectedSection === tab;
 	const accessor = useAccessor()
@@ -1161,7 +1173,7 @@ export const Settings = () => {
 
 					<div className='max-w-3xl'>
 
-						<h1 className='text-2xl w-full'>{`Void's Settings`}</h1>
+						<h1 className='text-2xl w-full'>{t.settingsTitle()}</h1>
 
 						<div className='w-full h-[1px] my-2' />
 
@@ -1177,7 +1189,7 @@ export const Settings = () => {
 							{/* Models section (formerly FeaturesTab) */}
 							<div className={shouldShowTab('models') ? `` : 'hidden'}>
 								<ErrorBoundary>
-									<h2 className={`text-3xl mb-2`}>Models</h2>
+									<h2 className={`text-3xl mb-2`}>{t.models()}</h2>
 									<ModelDump />
 									<div className='w-full h-[1px] my-4' />
 									<AutoDetectLocalModelsToggle />
@@ -1188,8 +1200,8 @@ export const Settings = () => {
 							{/* Local Providers section */}
 							<div className={shouldShowTab('localProviders') ? `` : 'hidden'}>
 								<ErrorBoundary>
-									<h2 className={`text-3xl mb-2`}>Local Providers</h2>
-									<h3 className={`text-void-fg-3 mb-2`}>{`Void can access any model that you host locally. We automatically detect your local models by default.`}</h3>
+									<h2 className={`text-3xl mb-2`}>{t.localProviders()}</h2>
+									<h3 className={`text-void-fg-3 mb-2`}>{t.localProvidersDesc()}</h3>
 
 									<div className='opacity-80 mb-4'>
 										<OllamaSetupInstructions sayWeAutoDetect={true} />
@@ -1202,8 +1214,8 @@ export const Settings = () => {
 							{/* Main Providers section */}
 							<div className={shouldShowTab('providers') ? `` : 'hidden'}>
 								<ErrorBoundary>
-									<h2 className={`text-3xl mb-2`}>Main Providers</h2>
-									<h3 className={`text-void-fg-3 mb-2`}>{`Void can access models from Anthropic, OpenAI, OpenRouter, and more.`}</h3>
+									<h2 className={`text-3xl mb-2`}>{t.mainProviders()}</h2>
+									<h3 className={`text-void-fg-3 mb-2`}>{t.mainProvidersDesc()}</h3>
 
 									<VoidProviderSettings providerNames={nonlocalProviderNames} />
 								</ErrorBoundary>
@@ -1212,7 +1224,7 @@ export const Settings = () => {
 							{/* Feature Options section */}
 							<div className={shouldShowTab('featureOptions') ? `` : 'hidden'}>
 								<ErrorBoundary>
-									<h2 className={`text-3xl mb-2`}>Feature Options</h2>
+									<h2 className={`text-3xl mb-2`}>{t.featureOptions()}</h2>
 
 									<div className='flex flex-col gap-y-8 my-4'>
 										<ErrorBoundary>
@@ -1221,15 +1233,15 @@ export const Settings = () => {
 												<h4 className={`text-base`}>{displayInfoOfFeatureName('Autocomplete')}</h4>
 												<div className='text-sm text-void-fg-3 mt-1'>
 													<span>
-														Experimental.{' '}
+														{t.experimental()}{' '}
 													</span>
 													<span
 														className='hover:brightness-110'
 														data-tooltip-id='void-tooltip'
-														data-tooltip-content='We recommend using the largest qwen2.5-coder model you can with Ollama (try qwen2.5-coder:3b).'
+														data-tooltip-content={t.fimModelRecommendation()}
 														data-tooltip-class-name='void-max-w-[20px]'
 													>
-														Only works with FIM models.*
+														{t.onlyWorksWithFIM()}
 													</span>
 												</div>
 
@@ -1242,7 +1254,7 @@ export const Settings = () => {
 																value={settingsState.globalSettings.enableAutocomplete}
 																onChange={(newVal) => voidSettingsService.setGlobalSetting('enableAutocomplete', newVal)}
 															/>
-															<span className='text-void-fg-3 text-xs pointer-events-none'>{settingsState.globalSettings.enableAutocomplete ? 'Enabled' : 'Disabled'}</span>
+															<span className='text-void-fg-3 text-xs pointer-events-none'>{settingsState.globalSettings.enableAutocomplete ? t.enabled() : t.disabled()}</span>
 														</div>
 													</ErrorBoundary>
 
@@ -1263,7 +1275,7 @@ export const Settings = () => {
 
 											<div className='w-full'>
 												<h4 className={`text-base`}>{displayInfoOfFeatureName('Apply')}</h4>
-												<div className='text-sm text-void-fg-3 mt-1'>Settings that control the behavior of the Apply button.</div>
+												<div className='text-sm text-void-fg-3 mt-1'>{t.applySettingsDesc()}</div>
 
 												<div className='my-2'>
 													{/* Sync to Chat Switch */}
@@ -1273,7 +1285,7 @@ export const Settings = () => {
 															value={settingsState.globalSettings.syncApplyToChat}
 															onChange={(newVal) => voidSettingsService.setGlobalSetting('syncApplyToChat', newVal)}
 														/>
-														<span className='text-void-fg-3 text-xs pointer-events-none'>{settingsState.globalSettings.syncApplyToChat ? 'Same as Chat model' : 'Different model'}</span>
+														<span className='text-void-fg-3 text-xs pointer-events-none'>{settingsState.globalSettings.syncApplyToChat ? t.sameAsChatModel() : t.differentModel()}</span>
 													</div>
 
 													{/* Model Dropdown */}
@@ -1298,15 +1310,15 @@ export const Settings = () => {
 
 										{/* Tools Section */}
 										<div>
-											<h4 className={`text-base`}>Tools</h4>
-											<div className='text-sm text-void-fg-3 mt-1'>{`Tools are functions that LLMs can call. Some tools require user approval.`}</div>
+											<h4 className={`text-base`}>{t.tools()}</h4>
+											<div className='text-sm text-void-fg-3 mt-1'>{t.toolsDesc()}</div>
 
 											<div className='my-2'>
 												{/* Auto Accept Switch */}
 												<ErrorBoundary>
 													{[...toolApprovalTypes].map((approvalType) => {
 														return <div key={approvalType} className="flex items-center gap-x-2 my-2">
-															<ToolApprovalTypeSwitch size='xs' approvalType={approvalType} desc={`Auto-approve ${approvalType}`} />
+															<ToolApprovalTypeSwitch size='xs' approvalType={approvalType} desc={t.autoApprove(approvalType)} />
 														</div>
 													})}
 
@@ -1321,7 +1333,7 @@ export const Settings = () => {
 															value={settingsState.globalSettings.includeToolLintErrors}
 															onChange={(newVal) => voidSettingsService.setGlobalSetting('includeToolLintErrors', newVal)}
 														/>
-														<span className='text-void-fg-3 text-xs pointer-events-none'>{settingsState.globalSettings.includeToolLintErrors ? 'Fix lint errors' : `Fix lint errors`}</span>
+														<span className='text-void-fg-3 text-xs pointer-events-none'>{settingsState.globalSettings.includeToolLintErrors ? t.fixLintErrors() : t.fixLintErrors()}</span>
 													</div>
 												</ErrorBoundary>
 
@@ -1333,7 +1345,27 @@ export const Settings = () => {
 															value={settingsState.globalSettings.autoAcceptLLMChanges}
 															onChange={(newVal) => voidSettingsService.setGlobalSetting('autoAcceptLLMChanges', newVal)}
 														/>
-														<span className='text-void-fg-3 text-xs pointer-events-none'>Auto-accept LLM changes</span>
+														<span className='text-void-fg-3 text-xs pointer-events-none'>{t.autoAcceptLLMChanges()}</span>
+													</div>
+												</ErrorBoundary>
+											</div>
+										</div>
+
+										{/* Developer Mode */}
+										<div className='w-full'>
+											<h4 className={`text-base`}>{t.developerMode()}</h4>
+											<div className='text-sm text-void-fg-3 mt-1'>{t.developerModeDesc()}</div>
+
+											<div className='my-2'>
+												{/* Show JSON Debug Switch */}
+												<ErrorBoundary>
+													<div className='flex items-center gap-x-2 my-2'>
+														<VoidSwitch
+															size='xs'
+															value={settingsState.globalSettings.showJsonDebug}
+															onChange={(newVal) => voidSettingsService.setGlobalSetting('showJsonDebug', newVal)}
+														/>
+														<span className='text-void-fg-3 text-xs pointer-events-none'>{t.showJsonDebug()}</span>
 													</div>
 												</ErrorBoundary>
 											</div>
@@ -1342,8 +1374,8 @@ export const Settings = () => {
 
 
 										<div className='w-full'>
-											<h4 className={`text-base`}>Editor</h4>
-											<div className='text-sm text-void-fg-3 mt-1'>{`Settings that control the visibility of Void suggestions in the code editor.`}</div>
+											<h4 className={`text-base`}>{t.editor()}</h4>
+											<div className='text-sm text-void-fg-3 mt-1'>{t.editorSettingsDesc()}</div>
 
 											<div className='my-2'>
 												{/* Auto Accept Switch */}
@@ -1354,7 +1386,7 @@ export const Settings = () => {
 															value={settingsState.globalSettings.showInlineSuggestions}
 															onChange={(newVal) => voidSettingsService.setGlobalSetting('showInlineSuggestions', newVal)}
 														/>
-														<span className='text-void-fg-3 text-xs pointer-events-none'>{settingsState.globalSettings.showInlineSuggestions ? 'Show suggestions on select' : 'Show suggestions on select'}</span>
+														<span className='text-void-fg-3 text-xs pointer-events-none'>{t.showSuggestionsOnSelect()}</span>
 													</div>
 												</ErrorBoundary>
 											</div>
@@ -1365,7 +1397,7 @@ export const Settings = () => {
 
 											<div className='w-full'>
 												<h4 className={`text-base`}>{displayInfoOfFeatureName('SCM')}</h4>
-												<div className='text-sm text-void-fg-3 mt-1'>Settings that control the behavior of the commit message generator.</div>
+												<div className='text-sm text-void-fg-3 mt-1'>{t.scmSettingsDesc()}</div>
 
 												<div className='my-2'>
 													{/* Sync to Chat Switch */}
@@ -1375,7 +1407,7 @@ export const Settings = () => {
 															value={settingsState.globalSettings.syncSCMToChat}
 															onChange={(newVal) => voidSettingsService.setGlobalSetting('syncSCMToChat', newVal)}
 														/>
-														<span className='text-void-fg-3 text-xs pointer-events-none'>{settingsState.globalSettings.syncSCMToChat ? 'Same as Chat model' : 'Different model'}</span>
+														<span className='text-void-fg-3 text-xs pointer-events-none'>{settingsState.globalSettings.syncSCMToChat ? t.sameAsChatModel() : t.differentModel()}</span>
 													</div>
 
 													{/* Model Dropdown */}
@@ -1395,8 +1427,8 @@ export const Settings = () => {
 								{/* One-Click Switch section */}
 								<div>
 									<ErrorBoundary>
-										<h2 className='text-3xl mb-2'>One-Click Switch</h2>
-										<h4 className='text-void-fg-3 mb-4'>{`Transfer your editor settings into Void.`}</h4>
+										<h2 className='text-3xl mb-2'>{t.oneClickSwitch()}</h2>
+										<h4 className='text-void-fg-3 mb-4'>{t.oneClickSwitchDesc()}</h4>
 
 										<div className='flex flex-col gap-2'>
 											<OneClickSwitchButton className='w-48' fromEditor="VS Code" />
@@ -1408,20 +1440,20 @@ export const Settings = () => {
 
 								{/* Import/Export section */}
 								<div>
-									<h2 className='text-3xl mb-2'>Import/Export</h2>
-									<h4 className='text-void-fg-3 mb-4'>{`Transfer Void's settings and chats in and out of Void.`}</h4>
+									<h2 className='text-3xl mb-2'>{t.importExport()}</h2>
+									<h4 className='text-void-fg-3 mb-4'>{t.importExportDesc()}</h4>
 									<div className='flex flex-col gap-8'>
 										{/* Settings Subcategory */}
 										<div className='flex flex-col gap-2 max-w-48 w-full'>
 											<input key={2 * s} ref={fileInputSettingsRef} type='file' accept='.json' className='hidden' onChange={handleUpload('Settings')} />
 											<VoidButtonBgDarken className='px-4 py-1 w-full' onClick={() => { fileInputSettingsRef.current?.click() }}>
-												Import Settings
+												{t.importSettings()}
 											</VoidButtonBgDarken>
 											<VoidButtonBgDarken className='px-4 py-1 w-full' onClick={() => onDownload('Settings')}>
-												Export Settings
+												{t.exportSettings()}
 											</VoidButtonBgDarken>
 											<ConfirmButton className='px-4 py-1 w-full' onConfirm={() => { voidSettingsService.resetState(); }}>
-												Reset Settings
+												{t.resetSettings()}
 											</ConfirmButton>
 										</div>
 
@@ -1429,13 +1461,13 @@ export const Settings = () => {
 										<div className='flex flex-col gap-2 max-w-48 w-full'>
 											<input key={2 * s + 1} ref={fileInputChatsRef} type='file' accept='.json' className='hidden' onChange={handleUpload('Chats')} />
 											<VoidButtonBgDarken className='px-4 py-1 w-full' onClick={() => { fileInputChatsRef.current?.click() }}>
-												Import Chats
+												{t.importChats()}
 											</VoidButtonBgDarken>
 											<VoidButtonBgDarken className='px-4 py-1 w-full' onClick={() => onDownload('Chats')}>
-												Export Chats
+												{t.exportChats()}
 											</VoidButtonBgDarken>
 											<ConfirmButton className='px-4 py-1 w-full' onConfirm={() => { chatThreadsService.resetState(); }}>
-												Reset Chats
+												{t.resetChats()}
 											</ConfirmButton>
 										</div>
 									</div>
@@ -1445,22 +1477,22 @@ export const Settings = () => {
 
 								{/* Built-in Settings section */}
 								<div>
-									<h2 className={`text-3xl mb-2`}>Built-in Settings</h2>
-									<h4 className={`text-void-fg-3 mb-4`}>{`IDE settings, keyboard settings, and theme customization.`}</h4>
+									<h2 className={`text-3xl mb-2`}>{t.builtInSettings()}</h2>
+									<h4 className={`text-void-fg-3 mb-4`}>{t.builtInSettingsDesc()}</h4>
 
 									<ErrorBoundary>
 										<div className='flex flex-col gap-2 justify-center max-w-48 w-full'>
 											<VoidButtonBgDarken className='px-4 py-1' onClick={() => { commandService.executeCommand('workbench.action.openSettings') }}>
-												General Settings
+												{t.generalSettings()}
 											</VoidButtonBgDarken>
 											<VoidButtonBgDarken className='px-4 py-1' onClick={() => { commandService.executeCommand('workbench.action.openGlobalKeybindings') }}>
-												Keyboard Settings
+												{t.keyboardSettings()}
 											</VoidButtonBgDarken>
 											<VoidButtonBgDarken className='px-4 py-1' onClick={() => { commandService.executeCommand('workbench.action.selectTheme') }}>
-												Theme Settings
+												{t.themeSettings()}
 											</VoidButtonBgDarken>
 											<VoidButtonBgDarken className='px-4 py-1' onClick={() => { nativeHostService.showItemInFolder(environmentService.logsHome.fsPath) }}>
-												Open Logs
+												{t.openLogs()}
 											</VoidButtonBgDarken>
 										</div>
 									</ErrorBoundary>
@@ -1469,8 +1501,8 @@ export const Settings = () => {
 
 								{/* Metrics section */}
 								<div className='max-w-[600px]'>
-									<h2 className={`text-3xl mb-2`}>Metrics</h2>
-									<h4 className={`text-void-fg-3 mb-4`}>Very basic anonymous usage tracking helps us keep Void running smoothly. You may opt out below. Regardless of this setting, Void never sees your code, messages, or API keys.</h4>
+									<h2 className={`text-3xl mb-2`}>{t.metrics()}</h2>
+									<h4 className={`text-void-fg-3 mb-4`}>{t.metricsDesc()}</h4>
 
 									<div className='my-2'>
 										{/* Disable All Metrics Switch */}
@@ -1484,7 +1516,7 @@ export const Settings = () => {
 														metricsService.capture(`Set metrics opt-out to ${newVal}`, {}) // this only fires if it's enabled, so it's fine to have here
 													}}
 												/>
-												<span className='text-void-fg-3 text-xs pointer-events-none'>{'Opt-out (requires restart)'}</span>
+												<span className='text-void-fg-3 text-xs pointer-events-none'>{t.optOutRequiresRestart()}</span>
 											</div>
 										</ErrorBoundary>
 									</div>
@@ -1492,12 +1524,9 @@ export const Settings = () => {
 
 								{/* AI Instructions section */}
 								<div className='max-w-[600px]'>
-									<h2 className={`text-3xl mb-2`}>AI Instructions</h2>
+									<h2 className={`text-3xl mb-2`}>{t.aiInstructions()}</h2>
 									<h4 className={`text-void-fg-3 mb-4`}>
-										<ChatMarkdownRender inPTag={true} string={`
-System instructions to include with all AI requests.
-Alternatively, place a \`.voidrules\` file in the root of your workspace.
-								`} chatMessageLocation={undefined} />
+											<ChatMarkdownRender inPTag={true} string={t.aiInstructionsDesc()} chatMessageLocation={undefined} />
 									</h4>
 									<ErrorBoundary>
 										<AIInstructionsBox />
@@ -1514,12 +1543,12 @@ Alternatively, place a \`.voidrules\` file in the root of your workspace.
 													}}
 												/>
 												<span className='text-void-fg-3 text-xs pointer-events-none'>
-													{'Disable system message'}
+													{t.disableSystemMessage()}
 												</span>
 											</div>
 										</ErrorBoundary>
 										<div className='text-void-fg-3 text-xs mt-1'>
-											{`When disabled, Void will not include anything in the system message except for content you specified above.`}
+											{t.disableSystemMessageDesc()}
 										</div>
 									</div>
 								</div>
@@ -1531,15 +1560,13 @@ Alternatively, place a \`.voidrules\` file in the root of your workspace.
 							{/* MCP section */}
 							<div className={shouldShowTab('mcp') ? `` : 'hidden'}>
 								<ErrorBoundary>
-									<h2 className='text-3xl mb-2'>MCP</h2>
+									<h2 className='text-3xl mb-2'>{t.mcp()}</h2>
 									<h4 className={`text-void-fg-3 mb-4`}>
-										<ChatMarkdownRender inPTag={true} string={`
-Use Model Context Protocol to provide Agent mode with more tools.
-							`} chatMessageLocation={undefined} />
+											<ChatMarkdownRender inPTag={true} string={t.mcpDesc()} chatMessageLocation={undefined} />
 									</h4>
 									<div className='my-2'>
 										<VoidButtonBgDarken className='px-4 py-1 w-full max-w-48' onClick={async () => { await mcpService.revealMCPConfigFile() }}>
-											Add MCP Server
+											{t.addMCPServer()}
 										</VoidButtonBgDarken>
 									</div>
 

@@ -16,11 +16,11 @@ import { AnthropicReasoning, getErrorMessage, RawToolCallObj, RawToolParamsObj }
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { FeatureName, ModelSelection, ModelSelectionOptions } from '../common/voidSettingsTypes.js';
 import { IVoidSettingsService } from '../common/voidSettingsService.js';
-import { approvalTypeOfBuiltinToolName, BuiltinToolCallParams, ToolCallParams, ToolName, ToolResult } from '../common/toolsServiceTypes.js';
+import { approvalTypeOfBuiltinToolName, AskUserQuestionItem, BuiltinToolCallParams, ToolCallParams, ToolName, ToolResult } from '../common/toolsServiceTypes.js';
 import { IToolsService } from './toolsService.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js';
-import { ChatMessage, CheckpointEntry, CodespanLocationLink, StagingSelectionItem, ToolMessage } from '../common/chatThreadServiceTypes.js';
+import { ChatMessage, CheckpointEntry, CodespanLocationLink, ImageAttachment, StagingSelectionItem, ToolMessage } from '../common/chatThreadServiceTypes.js';
 import { Position } from '../../../../editor/common/core/position.js';
 import { IMetricsService } from '../common/metricsService.js';
 import { shorten } from '../../../../base/common/labels.js';
@@ -43,7 +43,10 @@ import { RawMCPToolCall } from '../common/mcpServiceTypes.js';
 
 // related to retrying when LLM message has error
 const CHAT_RETRIES = 3
-const RETRY_DELAY = 2500
+const CHAT_RETRIES_MAX = 5
+const RETRY_DELAY = 2000
+const RETRY_DELAY_LONG = 10000
+const SHOW_LLM_RETRY = true
 
 
 const findStagingSelectionIndex = (currentSelections: StagingSelectionItem[] | undefined, newSelection: StagingSelectionItem): number | null => {
@@ -124,6 +127,7 @@ export type ThreadType = {
 		currCheckpointIdx: number | null; // the latest checkpoint we're at (null if not at a particular checkpoint, like if the chat is streaming, or chat just finished and we haven't clicked on a checkpt)
 
 		stagingSelections: StagingSelectionItem[];
+		stagingImages: ImageAttachment[]; // images staged for the next message
 		focusedMessageIdx: number | undefined; // index of the user message that is being edited (undefined if none)
 
 		linksOfMessageIdx: { // eg. link = linksOfMessageIdx[4]['RangeFunction']
@@ -215,6 +219,7 @@ const newThreadObject = () => {
 		state: {
 			currCheckpointIdx: null,
 			stagingSelections: [],
+			stagingImages: [],
 			focusedMessageIdx: undefined,
 			linksOfMessageIdx: {},
 		},
@@ -277,14 +282,16 @@ export interface IChatThreadService {
 	dismissStreamError(threadId: string): void;
 
 	// call to edit a message
-	editUserMessageAndStreamResponse({ userMessage, messageIdx, threadId }: { userMessage: string, messageIdx: number, threadId: string }): Promise<void>;
+	editUserMessageAndStreamResponse(opts: { userMessage: string, messageIdx: number, threadId: string, _chatImages?: ImageAttachment[] }): Promise<void>;
 
 	// call to add a message
-	addUserMessageAndStreamResponse({ userMessage, threadId }: { userMessage: string, threadId: string }): Promise<void>;
+	addUserMessageAndStreamResponse(opts: { userMessage: string, _chatSelections?: StagingSelectionItem[], _chatImages?: ImageAttachment[], threadId: string }): Promise<void>;
 
 	// approve/reject
 	approveLatestToolRequest(threadId: string): void;
 	rejectLatestToolRequest(threadId: string): void;
+	// approve ask_user_question with answers
+	approveAskUserQuestion(threadId: string, answers: Record<string, string | string[]>): void;
 
 	// jump to history
 	jumpToCheckpointBeforeMessageIdx(opts: { threadId: string, messageIdx: number, jumpToUserModified: boolean }): void;
@@ -531,6 +538,29 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 			, threadId
 		)
 	}
+	approveAskUserQuestion(threadId: string, answers: Record<string, string | string[]>) {
+		const thread = this.state.allThreads[threadId]
+		if (!thread) return // should never happen
+
+		const lastMsg = thread.messages[thread.messages.length - 1]
+		if (!(lastMsg.role === 'tool' && lastMsg.type === 'tool_request' && lastMsg.name === 'ask_user_question')) return // should never happen
+
+		// Update the params with the answers
+		const updatedParams = {
+			...lastMsg.params,
+			answers
+		}
+
+		const callThisToolFirst: ToolMessage<ToolName> = {
+			...lastMsg,
+			params: updatedParams as ToolCallParams<'ask_user_question'>
+		}
+
+		this._wrapRunAgentToNotify(
+			this._runChatAgent({ callThisToolFirst, threadId, ...this._currentModelSelectionProps() })
+			, threadId
+		)
+	}
 	rejectLatestToolRequest(threadId: string) {
 		const thread = this.state.allThreads[threadId]
 		if (!thread) return // should never happen
@@ -561,7 +591,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		// add assistant message
 		if (this.streamState[threadId]?.isRunning === 'LLM') {
 			const { displayContentSoFar, reasoningSoFar, toolCallSoFar } = this.streamState[threadId].llmInfo
-			this._addMessageToThread(threadId, { role: 'assistant', displayContent: displayContentSoFar, reasoning: reasoningSoFar, anthropicReasoning: null })
+			this._addMessageToThread(threadId, { role: 'assistant', displayContent: displayContentSoFar, reasoning: reasoningSoFar, anthropicReasoning: null, toolCalls: toolCallSoFar ? [toolCallSoFar] : null, rawLLMContent: null, modelName: null })
 			if (toolCallSoFar) this._addMessageToThread(threadId, { role: 'interrupted_streaming_tool', name: toolCallSoFar.name, mcpServerName: this._computeMCPServerOfToolName(toolCallSoFar.name) })
 		}
 		// add tool that's running
@@ -643,7 +673,9 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 
 			const approvalType = isBuiltInTool ? approvalTypeOfBuiltinToolName[toolName] : 'MCP tools'
 			if (approvalType) {
-				const autoApprove = this._settingsService.state.globalSettings.autoApprove[approvalType]
+				// ask_user_question always requires user interaction, never auto-approve
+				const isAskUserQuestion = toolName === 'ask_user_question'
+				const autoApprove = isAskUserQuestion ? false : this._settingsService.state.globalSettings.autoApprove[approvalType]
 				// add a tool_request because we use it for UI if a tool is loading (this should be improved in the future)
 				this._addMessageToThread(threadId, { role: 'tool', type: 'tool_request', content: '(Awaiting user permission...)', result: null, name: toolName, params: toolParams, id: toolId, rawParams: opts.unvalidatedToolParams, mcpServerName })
 				if (!autoApprove) {
@@ -777,11 +809,28 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 			this._setStreamState(threadId, { isRunning: 'idle', interrupt: idleInterruptor })
 
 			const chatMessages = this.state.allThreads[threadId]?.messages ?? []
+			// const { messages, separateSystemMessage, combinedSystemMessage } = await this._convertToLLMMessagesService.prepareLLMChatMessages({
+			// 	chatMessages,
+			// 	modelSelection,
+			// 	chatMode
+			// })
 			const { messages, separateSystemMessage } = await this._convertToLLMMessagesService.prepareLLMChatMessages({
 				chatMessages,
 				modelSelection,
 				chatMode
 			})
+
+			// 需要单独显示提示词才打开
+			// // Add system message to the conversation for display (after user message, before sending to model)
+			// if (combinedSystemMessage && nMessagesSent === 1) {
+			// 	// Only add system message on the first iteration
+			// 	const modelSelectionStr = modelSelection ? `${modelSelection.providerName}/${modelSelection.modelName}` : 'unknown'
+			// 	this._addMessageToThread(threadId, {
+			// 		role: 'system',
+			// 		systemContent: combinedSystemMessage,
+			// 		modelUsed: modelSelectionStr
+			// 	})
+			// }
 
 			if (interruptedWhenIdle) {
 				this._setStreamState(threadId, undefined)
@@ -795,7 +844,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 				nAttempts += 1
 
 				type ResTypes =
-					| { type: 'llmDone', toolCall?: RawToolCallObj, info: { fullText: string, fullReasoning: string, anthropicReasoning: AnthropicReasoning[] | null } }
+					| { type: 'llmDone', toolCall?: RawToolCallObj, info: { fullText: string, fullReasoning: string, anthropicReasoning: AnthropicReasoning[] | null, modelName?: string } }
 					| { type: 'llmError', error?: { message: string; fullError: Error | null; } }
 					| { type: 'llmAborted' }
 
@@ -814,11 +863,22 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 					onText: ({ fullText, fullReasoning, toolCall }) => {
 						this._setStreamState(threadId, { isRunning: 'LLM', llmInfo: { displayContentSoFar: fullText, reasoningSoFar: fullReasoning, toolCallSoFar: toolCall ?? null }, interrupt: Promise.resolve(() => { if (llmCancelToken) this._llmMessageService.abort(llmCancelToken) }) })
 					},
-					onFinalMessage: async ({ fullText, fullReasoning, toolCall, anthropicReasoning, }) => {
-						resMessageIsDonePromise({ type: 'llmDone', toolCall, info: { fullText, fullReasoning, anthropicReasoning } }) // resolve with tool calls
+					onFinalMessage: async ({ fullText, fullReasoning, toolCall, anthropicReasoning, modelName }) => {
+						resMessageIsDonePromise({ type: 'llmDone', toolCall, info: { fullText, fullReasoning, anthropicReasoning, modelName } }) // resolve with tool calls
 					},
 					onError: async (error) => {
 						resMessageIsDonePromise({ type: 'llmError', error: error })
+					},
+					onOptionsCreated: ({ options }) => {
+						// Add options as a system message before API call
+						// const optionsContent = JSON.stringify(options, null, 2)
+						// const modelSelectionStr = modelSelection ? `${modelSelection.providerName}/${modelSelection.modelName}` : 'unknown'
+						// this._addMessageToThread(threadId, {
+						// 	role: 'system',
+						// 	title: 'OPEN API请求',
+						// 	systemContent: optionsContent,
+						// 	modelUsed: modelSelectionStr
+						// })
 					},
 					onAbort: () => {
 						// stop the loop to free up the promise, but don't modify state (already handled by whatever stopped it)
@@ -850,10 +910,25 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 				// llm res error
 				else if (llmRes.type === 'llmError') {
 					// error, should retry
-					if (nAttempts < CHAT_RETRIES) {
+					if (nAttempts < CHAT_RETRIES_MAX) {
+						let timeoutSet = RETRY_DELAY_LONG
+						if (nAttempts < CHAT_RETRIES) { //2s 4s 6s
+							timeoutSet=RETRY_DELAY*nAttempts
+						}
+						if(SHOW_LLM_RETRY){
+							const { error } = llmRes
+							// Add system message to display the error on every error
+							const modelSelectionStr = modelSelection ? `${modelSelection.providerName}/${modelSelection.modelName}` : 'unknown'
+							this._addMessageToThread(threadId, {
+								role: 'system',
+								title: `llm请求错误,${timeoutSet/1000}秒后再次尝试`,
+								systemContent: error?.message || 'Unknown error occurred',
+								modelUsed: modelSelectionStr
+							})
+						}
 						shouldRetryLLM = true
 						this._setStreamState(threadId, { isRunning: 'idle', interrupt: idleInterruptor })
-						await timeout(RETRY_DELAY)
+						await timeout(timeoutSet)
 						if (interruptedWhenIdle) {
 							this._setStreamState(threadId, undefined)
 							return
@@ -865,7 +940,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 					else {
 						const { error } = llmRes
 						const { displayContentSoFar, reasoningSoFar, toolCallSoFar } = this.streamState[threadId].llmInfo
-						this._addMessageToThread(threadId, { role: 'assistant', displayContent: displayContentSoFar, reasoning: reasoningSoFar, anthropicReasoning: null })
+						this._addMessageToThread(threadId, { role: 'assistant', displayContent: displayContentSoFar, reasoning: reasoningSoFar, anthropicReasoning: null, toolCalls: toolCallSoFar ? [toolCallSoFar] : null, rawLLMContent: null, modelName: null })
 						if (toolCallSoFar) this._addMessageToThread(threadId, { role: 'interrupted_streaming_tool', name: toolCallSoFar.name, mcpServerName: this._computeMCPServerOfToolName(toolCallSoFar.name) })
 
 						this._setStreamState(threadId, { isRunning: undefined, error })
@@ -877,7 +952,28 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 				// llm res success
 				const { toolCall, info } = llmRes
 
-				this._addMessageToThread(threadId, { role: 'assistant', displayContent: info.fullText, reasoning: info.fullReasoning, anthropicReasoning: info.anthropicReasoning })
+				this._addMessageToThread(threadId, { role: 'assistant', displayContent: info.fullText, reasoning: info.fullReasoning, anthropicReasoning: info.anthropicReasoning, toolCalls: toolCall ? [toolCall] : null, rawLLMContent: null, modelName: info.modelName ?? null })
+
+				// Add system message to display onFinalMessage debug info 这里不需要了暂时
+				// const finalMessageDebugInfo = {
+				// 	fullText: info.fullText,
+				// 	fullReasoning: info.fullReasoning,
+				// 	modelName: info.modelName ?? null,
+				// 	anthropicReasoning: info.anthropicReasoning,
+				// 	toolCall: toolCall ? {
+				// 		id: toolCall.id,
+				// 		name: toolCall.name,
+				// 		rawParams: toolCall.rawParams,
+				// 		doneParams: toolCall.doneParams,
+				// 		isDone: toolCall.isDone
+				// 	} : null
+				// }
+				// this._addMessageToThread(threadId, {
+				// 	role: 'system',
+				// 	title: 'OPEN API返回',
+				// 	systemContent: JSON.stringify(finalMessageDebugInfo, null, 2),
+				// 	modelUsed: info.modelName ?? 'N/A'
+				// })
 
 				this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' }) // just decorative for clarity
 
@@ -886,12 +982,16 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 					const mcpTools = this._mcpService.getMCPTools()
 					const mcpTool = mcpTools?.find(t => t.name === toolCall.name)
 
-					const { awaitingUserApproval, interrupted } = await this._runToolCall(threadId, toolCall.name, toolCall.id, mcpTool?.mcpServerName, { preapproved: false, unvalidatedToolParams: toolCall.rawParams })
+				const { awaitingUserApproval, interrupted } = await this._runToolCall(threadId, toolCall.name, toolCall.id, mcpTool?.mcpServerName, { preapproved: false, unvalidatedToolParams: toolCall.rawParams })
 					if (interrupted) {
 						this._setStreamState(threadId, undefined)
 						return
 					}
-					if (awaitingUserApproval) { isRunningWhenEnd = 'awaiting_user' }
+					if (awaitingUserApproval) {
+						isRunningWhenEnd = 'awaiting_user'
+						// Notify user when awaiting their input (ask_user_question or tool approval)
+						this._notifyAwaitingUser(threadId, toolCall.name)
+					}
 					else { shouldSendAnotherMessage = true }
 
 					this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' }) // just decorative, for clarity
@@ -1073,7 +1173,11 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 			const lastMsg = thread.messages[thread.messages.length - 1]
 			if (lastMsg?.role !== 'checkpoint')
 				this._addUserCheckpoint({ threadId })
-			this._setThreadState(threadId, { currCheckpointIdx: thread.messages.length - 1 })
+			// Re-fetch the thread to get updated messages length after potential checkpoint addition
+			const updatedThread = this.state.allThreads[threadId]
+			if (updatedThread) {
+				this._setThreadState(threadId, { currCheckpointIdx: updatedThread.messages.length - 1 })
+			}
 		}
 	}
 
@@ -1226,12 +1330,52 @@ We only need to do it for files that were edited since `from`, ie files between 
 		})
 	}
 
+	private _notifyAwaitingUser(threadId: string, toolName: ToolName, questions?: AskUserQuestionItem[]) {
+		// Only notify if not on the current thread
+		if (threadId === this.state.currentThreadId) return
+
+		const thread = this.state.allThreads[threadId]
+		if (!thread) return
+
+		const userMsg = findLast(thread.messages, m => m.role === 'user')
+		if (!userMsg || userMsg.role !== 'user') return
+		const messageContent = truncate(userMsg.displayContent, 50, '...')
+
+		const isAskUserQuestion = toolName === 'ask_user_question'
+		const notificationMessage = isAskUserQuestion
+			? `AI has a question for you`
+			: `AI is awaiting your approval`
+
+		this._notificationService.notify({
+			severity: Severity.Info,
+			message: notificationMessage,
+			source: messageContent,
+			sticky: true,
+			actions: {
+				primary: [{
+					id: 'void.goToChat',
+					enabled: true,
+					label: `Jump to Chat`,
+					tooltip: '',
+					class: undefined,
+					run: () => {
+						this.switchToThread(threadId)
+						// scroll to bottom
+						this.state.allThreads[threadId]?.state.mountedInfo?.whenMounted.then(m => {
+							m.scrollToBottom()
+						})
+					}
+				}]
+			},
+		})
+	}
+
 	dismissStreamError(threadId: string): void {
 		this._setStreamState(threadId, undefined)
 	}
 
 
-	private async _addUserMessageAndStreamResponse({ userMessage, _chatSelections, threadId }: { userMessage: string, _chatSelections?: StagingSelectionItem[], threadId: string }) {
+	private async _addUserMessageAndStreamResponse({ userMessage, _chatSelections, _chatImages, threadId }: { userMessage: string, _chatSelections?: StagingSelectionItem[], _chatImages?: ImageAttachment[], threadId: string }) {
 		const thread = this.state.allThreads[threadId]
 		if (!thread) return // should never happen
 
@@ -1249,12 +1393,14 @@ We only need to do it for files that were edited since `from`, ie files between 
 		// add user's message to chat history
 		const instructions = userMessage
 		const currSelns: StagingSelectionItem[] = _chatSelections ?? thread.state.stagingSelections
+		const currImages: ImageAttachment[] = _chatImages ?? thread.state.stagingImages
 
 		const userMessageContent = await chat_userMessageContent(instructions, currSelns, { directoryStrService: this._directoryStringService, fileService: this._fileService }) // user message + names of files (NOT content)
-		const userHistoryElt: ChatMessage = { role: 'user', content: userMessageContent, displayContent: instructions, selections: currSelns, state: defaultMessageState }
+		const userHistoryElt: ChatMessage = { role: 'user', content: userMessageContent, displayContent: instructions, selections: currSelns, images: currImages.length > 0 ? currImages : null, state: defaultMessageState }
 		this._addMessageToThread(threadId, userHistoryElt)
 
-		this._setThreadState(threadId, { currCheckpointIdx: null }) // no longer at a checkpoint because started streaming
+		// Clear staging images after adding to message
+		this._setThreadState(threadId, { currCheckpointIdx: null, stagingImages: [] }) // no longer at a checkpoint because started streaming
 
 		this._wrapRunAgentToNotify(
 			this._runChatAgent({ threadId, ...this._currentModelSelectionProps(), }),
@@ -1268,7 +1414,7 @@ We only need to do it for files that were edited since `from`, ie files between 
 	}
 
 
-	async addUserMessageAndStreamResponse({ userMessage, _chatSelections, threadId }: { userMessage: string, _chatSelections?: StagingSelectionItem[], threadId: string }) {
+	async addUserMessageAndStreamResponse({ userMessage, _chatSelections, _chatImages, threadId }: { userMessage: string, _chatSelections?: StagingSelectionItem[], _chatImages?: ImageAttachment[], threadId: string }) {
 		const thread = this.state.allThreads[threadId];
 		if (!thread) return
 
@@ -1277,13 +1423,17 @@ We only need to do it for files that were edited since `from`, ie files between 
 			const checkpointIdx = thread.state.currCheckpointIdx;
 			const newMessages = thread.messages.slice(0, checkpointIdx + 1);
 
-			// Update the thread with truncated messages
+			// Update the thread with truncated messages and reset currCheckpointIdx
 			const newThreads = {
 				...this.state.allThreads,
 				[threadId]: {
 					...thread,
 					lastModified: new Date().toISOString(),
 					messages: newMessages,
+					state: {
+						...thread.state,
+						currCheckpointIdx: null, // Reset checkpoint index after truncation
+					}
 				}
 			};
 			this._storeAllThreads(newThreads);
@@ -1291,11 +1441,11 @@ We only need to do it for files that were edited since `from`, ie files between 
 		}
 
 		// Now call the original method to add the user message and stream the response
-		await this._addUserMessageAndStreamResponse({ userMessage, _chatSelections, threadId });
+		await this._addUserMessageAndStreamResponse({ userMessage, _chatSelections, _chatImages, threadId });
 
 	}
 
-	editUserMessageAndStreamResponse: IChatThreadService['editUserMessageAndStreamResponse'] = async ({ userMessage, messageIdx, threadId }) => {
+	editUserMessageAndStreamResponse: IChatThreadService['editUserMessageAndStreamResponse'] = async ({ userMessage, messageIdx, threadId, _chatImages }) => {
 
 		const thread = this.state.allThreads[threadId]
 		if (!thread) return // should never happen
@@ -1306,6 +1456,8 @@ We only need to do it for files that were edited since `from`, ie files between 
 
 		// get prev and curr selections before clearing the message
 		const currSelns = thread.messages[messageIdx].state.stagingSelections || [] // staging selections for the edited message
+		// use provided images or get images from the original message
+		const currImages = _chatImages ?? thread.messages[messageIdx].images ?? []
 
 		// clear messages up to the index
 		const slicedMessages = thread.messages.slice(0, messageIdx)
@@ -1319,8 +1471,8 @@ We only need to do it for files that were edited since `from`, ie files between 
 			}
 		})
 
-		// re-add the message and stream it
-		this._addUserMessageAndStreamResponse({ userMessage, _chatSelections: currSelns, threadId })
+		// re-add the message and stream it (preserve images from original message or use provided images)
+		this._addUserMessageAndStreamResponse({ userMessage, _chatSelections: currSelns, _chatImages: currImages, threadId })
 	}
 
 	// ---------- the rest ----------

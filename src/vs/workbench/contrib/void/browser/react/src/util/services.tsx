@@ -83,12 +83,18 @@ const activeURIListeners: Set<(uri: URI | null) => void> = new Set();
 
 const mcpListeners: Set<() => void> = new Set()
 
+// Track whether services have been registered globally (singleton pattern)
+let servicesRegistered = false
+let globalDisposables: IDisposable[] = []
 
 // must call this before you can use any of the hooks below
 // this should only be called ONCE! this is the only place you don't need to dispose onDidChange. If you use state.onDidChange anywhere else, make sure to dispose it!
 export const _registerServices = (accessor: ServicesAccessor) => {
-
-	const disposables: IDisposable[] = []
+	// Only register services once globally
+	if (servicesRegistered) {
+		return []
+	}
+	servicesRegistered = true
 
 	_registerAccessor(accessor)
 
@@ -109,7 +115,7 @@ export const _registerServices = (accessor: ServicesAccessor) => {
 
 
 	chatThreadsState = chatThreadsStateService.state
-	disposables.push(
+	globalDisposables.push(
 		chatThreadsStateService.onDidChangeCurrentThread(() => {
 			chatThreadsState = chatThreadsStateService.state
 			chatThreadsStateListeners.forEach(l => l(chatThreadsState))
@@ -118,7 +124,7 @@ export const _registerServices = (accessor: ServicesAccessor) => {
 
 	// same service, different state
 	chatThreadsStreamState = chatThreadsStateService.streamState
-	disposables.push(
+	globalDisposables.push(
 		chatThreadsStateService.onDidChangeStreamState(({ threadId }) => {
 			chatThreadsStreamState = chatThreadsStateService.streamState
 			chatThreadsStreamStateListeners.forEach(l => l(threadId))
@@ -126,7 +132,7 @@ export const _registerServices = (accessor: ServicesAccessor) => {
 	)
 
 	settingsState = settingsStateService.state
-	disposables.push(
+	globalDisposables.push(
 		settingsStateService.onDidChangeState(() => {
 			settingsState = settingsStateService.state
 			settingsStateListeners.forEach(l => l(settingsState))
@@ -134,7 +140,7 @@ export const _registerServices = (accessor: ServicesAccessor) => {
 	)
 
 	refreshModelState = refreshModelService.state
-	disposables.push(
+	globalDisposables.push(
 		refreshModelService.onDidChangeState((providerName) => {
 			refreshModelState = refreshModelService.state
 			refreshModelStateListeners.forEach(l => l(refreshModelState))
@@ -143,7 +149,7 @@ export const _registerServices = (accessor: ServicesAccessor) => {
 	)
 
 	colorThemeState = themeService.getColorTheme().type
-	disposables.push(
+	globalDisposables.push(
 		themeService.onDidColorThemeChange(({ type }) => {
 			colorThemeState = type
 			colorThemeStateListeners.forEach(l => l(colorThemeState))
@@ -151,33 +157,33 @@ export const _registerServices = (accessor: ServicesAccessor) => {
 	)
 
 	// no state
-	disposables.push(
+	globalDisposables.push(
 		editCodeService.onDidChangeStreamingInCtrlKZone(({ diffareaid }) => {
 			const isStreaming = editCodeService.isCtrlKZoneStreaming({ diffareaid })
 			ctrlKZoneStreamingStateListeners.forEach(l => l(diffareaid, isStreaming))
 		})
 	)
 
-	disposables.push(
+	globalDisposables.push(
 		voidCommandBarService.onDidChangeState(({ uri }) => {
 			commandBarURIStateListeners.forEach(l => l(uri));
 		})
 	)
 
-	disposables.push(
+	globalDisposables.push(
 		voidCommandBarService.onDidChangeActiveURI(({ uri }) => {
 			activeURIListeners.forEach(l => l(uri));
 		})
 	)
 
-	disposables.push(
+	globalDisposables.push(
 		mcpService.onDidChangeState(() => {
 			mcpListeners.forEach(l => l())
 		})
 	)
 
 
-	return disposables
+	return globalDisposables
 }
 
 

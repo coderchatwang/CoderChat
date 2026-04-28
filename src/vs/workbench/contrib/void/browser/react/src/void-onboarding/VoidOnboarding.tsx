@@ -100,7 +100,7 @@ const tabNames = ['Free', 'Paid', 'Local'] as const;
 type TabName = typeof tabNames[number] | 'Cloud/Other';
 
 // Data for cloud providers tab
-const cloudProviders: ProviderName[] = ['googleVertex', 'liteLLM', 'microsoftAzure', 'awsBedrock', 'openAICompatible'];
+const cloudProviders: ProviderName[] = ['googleVertex', 'liteLLM', 'microsoftAzure', 'awsBedrock', 'openAICompatible', 'openAICompatible2', 'openAICompatible3', 'openAICompatible4', 'openAICompatible5', 'openAICompatible6', 'openAICompatible7', 'openAICompatible8', 'openAICompatible9'];
 
 // Data structures for provider tabs
 const providerNamesOfTab: Record<TabName, ProviderName[]> = {
@@ -511,7 +511,7 @@ const VoidOnboardingContent = () => {
 
 	const providerNamesOfWantToUseOption: { [wantToUseOption in WantToUseOption]: ProviderName[] } = {
 		smart: ['anthropic', 'openAI', 'gemini', 'openRouter'],
-		private: ['ollama', 'vLLM', 'openAICompatible', 'lmStudio'],
+		private: ['ollama', 'vLLM', 'openAICompatible','openAICompatible2','openAICompatible3','openAICompatible4','openAICompatible5','openAICompatible6','openAICompatible7','openAICompatible8','openAICompatible9', 'lmStudio'],
 		cheap: ['gemini', 'deepseek', 'openRouter', 'ollama', 'vLLM'],
 		all: providerNames,
 	}
@@ -547,7 +547,7 @@ const VoidOnboardingContent = () => {
 					voidMetricsService.capture('Completed Onboarding', { selectedProviderName, wantToUseOption })
 				}}
 				ringSize={voidSettingsState.globalSettings.isOnboardingComplete ? 'screen' : undefined}
-			>Enter the Void</PrimaryActionButton>
+			>Enter the CoderChat</PrimaryActionButton>
 		</div>
 	</div>
 
@@ -596,7 +596,7 @@ const VoidOnboardingContent = () => {
 		0: <OnboardingPageShell
 			content={
 				<div className='flex flex-col items-center gap-8'>
-					<div className="text-5xl font-light text-center">Welcome to Void</div>
+					<div className="text-5xl font-light text-center">Welcome to CoderChat</div>
 
 					{/* Slice of Void image */}
 					<div className='max-w-md w-full h-[30vh] mx-auto flex items-center justify-center'>

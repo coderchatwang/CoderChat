@@ -12,9 +12,11 @@ import { MistralCore } from '@mistralai/mistralai/core.js';
 import { fimComplete } from '@mistralai/mistralai/funcs/fimComplete.js';
 import { Tool as GeminiTool, FunctionDeclaration, GoogleGenAI, ThinkingConfig, Schema, Type } from '@google/genai';
 import { GoogleAuth } from 'google-auth-library'
+import { HttpsProxyAgent } from 'https-proxy-agent';
+import * as https from 'https';
 /* eslint-enable */
 
-import { AnthropicLLMChatMessage, GeminiLLMChatMessage, LLMChatMessage, LLMFIMMessage, ModelListParams, OllamaModelResponse, OnError, OnFinalMessage, OnText, RawToolCallObj, RawToolParamsObj } from '../../common/sendLLMMessageTypes.js';
+import { GeminiLLMChatMessage, LLMChatMessage, LLMFIMMessage, ModelListParams, OllamaModelResponse, OnError, OnFinalMessage, OnText, OnOptionsCreated, ProxyConfig, RawToolCallObj, RawToolParamsObj } from '../../common/sendLLMMessageTypes.js';
 import { ChatMode, displayInfoOfProviderName, ModelSelectionOptions, OverridesOfModel, ProviderName, SettingsOfProvider } from '../../common/voidSettingsTypes.js';
 import { getSendableReasoningInfo, getModelCapabilities, getProviderCapabilities, defaultProviderSettings, getReservedOutputTokenSpace } from '../../common/modelCapabilities.js';
 import { extractReasoningWrapper, extractXMLToolsWrapper } from './extractGrammar.js';
@@ -36,12 +38,14 @@ type InternalCommonMessageParams = {
 	onText: OnText;
 	onFinalMessage: OnFinalMessage;
 	onError: OnError;
+	onOptionsCreated?: OnOptionsCreated;
 	providerName: ProviderName;
 	settingsOfProvider: SettingsOfProvider;
 	modelSelectionOptions: ModelSelectionOptions | undefined;
 	overridesOfModel: OverridesOfModel | undefined;
 	modelName: string;
 	_setAborter: (aborter: () => void) => void;
+	proxyConfig: ProxyConfig;
 }
 
 type SendChatParams_Internal = InternalCommonMessageParams & {
@@ -69,11 +73,34 @@ const parseHeadersJSON = (s: string | undefined): Record<string, string | null |
 	}
 }
 
-const newOpenAICompatibleSDK = async ({ settingsOfProvider, providerName, includeInPayload }: { settingsOfProvider: SettingsOfProvider, providerName: ProviderName, includeInPayload?: { [s: string]: any } }) => {
-	const commonPayloadOpts: ClientOptions = {
+const newOpenAICompatibleSDK = async ({ settingsOfProvider, providerName, includeInPayload, proxyConfig }: { settingsOfProvider: SettingsOfProvider, providerName: ProviderName, includeInPayload?: { [s: string]: any }, proxyConfig: ProxyConfig }) => {
+	let commonPayloadOpts: ClientOptions = {
 		dangerouslyAllowBrowser: true,
 		...includeInPayload,
+	};
+
+	// Use proxy from VSCode settings if configured
+	if (proxyConfig.proxyUrl) {
+		const proxyAgent = new HttpsProxyAgent(proxyConfig.proxyUrl);
+
+		// If proxyStrictSSL is false, disable certificate verification
+		if (!proxyConfig.proxyStrictSSL) {
+			process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+			(https.globalAgent as any).options = (https.globalAgent as any).options || {};
+			(https.globalAgent as any).options.rejectUnauthorized = false;
+		}
+
+		console.log(`[Proxy] Using proxy: ${proxyConfig.proxyUrl}, strictSSL: ${proxyConfig.proxyStrictSSL}`);
+
+		commonPayloadOpts = {
+			...commonPayloadOpts,
+			httpAgent: proxyAgent,
+		};
+	} else {
+		console.log('[Proxy] No proxy configured, using direct connection');
 	}
+
+	// 返回结果
 	if (providerName === 'openAI') {
 		const thisConfig = settingsOfProvider[providerName]
 		return new OpenAI({ apiKey: thisConfig.apiKey, ...commonPayloadOpts })
@@ -101,7 +128,7 @@ const newOpenAICompatibleSDK = async ({ settingsOfProvider, providerName, includ
 			apiKey: thisConfig.apiKey,
 			defaultHeaders: {
 				'HTTP-Referer': 'https://voideditor.com', // Optional, for including your app on openrouter.ai rankings.
-				'X-Title': 'Void', // Optional. Shows in rankings on openrouter.ai.
+				'X-Title': 'CoderChat', // Optional. Shows in rankings on openrouter.ai.
 			},
 			...commonPayloadOpts,
 		})
@@ -155,6 +182,46 @@ const newOpenAICompatibleSDK = async ({ settingsOfProvider, providerName, includ
 		const headers = parseHeadersJSON(thisConfig.headersJSON)
 		return new OpenAI({ baseURL: thisConfig.endpoint, apiKey: thisConfig.apiKey, defaultHeaders: headers, ...commonPayloadOpts })
 	}
+	else if (providerName === 'openAICompatible2') {
+		const thisConfig = settingsOfProvider[providerName]
+		const headers = parseHeadersJSON(thisConfig.headersJSON)
+		return new OpenAI({ baseURL: thisConfig.endpoint, apiKey: thisConfig.apiKey, defaultHeaders: headers, ...commonPayloadOpts })
+	}
+	else if (providerName === 'openAICompatible3') {
+		const thisConfig = settingsOfProvider[providerName]
+		const headers = parseHeadersJSON(thisConfig.headersJSON)
+		return new OpenAI({ baseURL: thisConfig.endpoint, apiKey: thisConfig.apiKey, defaultHeaders: headers, ...commonPayloadOpts })
+	}
+	else if (providerName === 'openAICompatible4') {
+		const thisConfig = settingsOfProvider[providerName]
+		const headers = parseHeadersJSON(thisConfig.headersJSON)
+		return new OpenAI({ baseURL: thisConfig.endpoint, apiKey: thisConfig.apiKey, defaultHeaders: headers, ...commonPayloadOpts })
+	}
+	else if (providerName === 'openAICompatible5') {
+		const thisConfig = settingsOfProvider[providerName]
+		const headers = parseHeadersJSON(thisConfig.headersJSON)
+		return new OpenAI({ baseURL: thisConfig.endpoint, apiKey: thisConfig.apiKey, defaultHeaders: headers, ...commonPayloadOpts })
+	}
+	else if (providerName === 'openAICompatible6') {
+		const thisConfig = settingsOfProvider[providerName]
+		const headers = parseHeadersJSON(thisConfig.headersJSON)
+		return new OpenAI({ baseURL: thisConfig.endpoint, apiKey: thisConfig.apiKey, defaultHeaders: headers, ...commonPayloadOpts })
+	}
+	else if (providerName === 'openAICompatible7') {
+		const thisConfig = settingsOfProvider[providerName]
+		const headers = parseHeadersJSON(thisConfig.headersJSON)
+		return new OpenAI({ baseURL: thisConfig.endpoint, apiKey: thisConfig.apiKey, defaultHeaders: headers, ...commonPayloadOpts })
+	}
+	else if (providerName === 'openAICompatible8') {
+		const thisConfig = settingsOfProvider[providerName]
+		const headers = parseHeadersJSON(thisConfig.headersJSON)
+		return new OpenAI({ baseURL: thisConfig.endpoint, apiKey: thisConfig.apiKey, defaultHeaders: headers, ...commonPayloadOpts })
+	}
+	else if (providerName === 'openAICompatible9') {
+		const thisConfig = settingsOfProvider[providerName]
+		const headers = parseHeadersJSON(thisConfig.headersJSON)
+		return new OpenAI({ baseURL: thisConfig.endpoint, apiKey: thisConfig.apiKey, defaultHeaders: headers, ...commonPayloadOpts })
+	}
 	else if (providerName === 'groq') {
 		const thisConfig = settingsOfProvider[providerName]
 		return new OpenAI({ baseURL: 'https://api.groq.com/openai/v1', apiKey: thisConfig.apiKey, ...commonPayloadOpts })
@@ -172,7 +239,7 @@ const newOpenAICompatibleSDK = async ({ settingsOfProvider, providerName, includ
 }
 
 
-const _sendOpenAICompatibleFIM = async ({ messages: { prefix, suffix, stopTokens }, onFinalMessage, onError, settingsOfProvider, modelName: modelName_, _setAborter, providerName, overridesOfModel }: SendFIMParams_Internal) => {
+const _sendOpenAICompatibleFIM = async ({ messages: { prefix, suffix, stopTokens }, onFinalMessage, onError, settingsOfProvider, modelName: modelName_, _setAborter, providerName, overridesOfModel, proxyConfig }: SendFIMParams_Internal) => {
 
 	const {
 		modelName,
@@ -188,7 +255,7 @@ const _sendOpenAICompatibleFIM = async ({ messages: { prefix, suffix, stopTokens
 		return
 	}
 
-	const openai = await newOpenAICompatibleSDK({ providerName, settingsOfProvider, includeInPayload: additionalOpenAIPayload })
+	const openai = await newOpenAICompatibleSDK({ providerName, settingsOfProvider, includeInPayload: additionalOpenAIPayload, proxyConfig })
 	openai.completions
 		.create({
 			model: modelName,
@@ -199,7 +266,7 @@ const _sendOpenAICompatibleFIM = async ({ messages: { prefix, suffix, stopTokens
 		})
 		.then(async response => {
 			const fullText = response.choices[0]?.text
-			onFinalMessage({ fullText, fullReasoning: '', anthropicReasoning: null });
+			onFinalMessage({ fullText, fullReasoning: '', anthropicReasoning: null, modelName });
 		})
 		.catch(error => {
 			if (error instanceof OpenAI.APIError && error.status === 401) { onError({ message: invalidApiKeyMessage(providerName), fullError: error }); }
@@ -270,7 +337,7 @@ const rawToolCallObjOfAnthropicParams = (toolBlock: Anthropic.Messages.ToolUseBl
 // ------------ OPENAI-COMPATIBLE ------------
 
 
-const _sendOpenAICompatibleChat = async ({ messages, onText, onFinalMessage, onError, settingsOfProvider, modelSelectionOptions, modelName: modelName_, _setAborter, providerName, chatMode, separateSystemMessage, overridesOfModel, mcpTools }: SendChatParams_Internal) => {
+const _sendOpenAICompatibleChat = async ({ messages, onText, onFinalMessage, onError, onOptionsCreated, settingsOfProvider, modelSelectionOptions, modelName: modelName_, _setAborter, providerName, chatMode, separateSystemMessage, overridesOfModel, mcpTools, proxyConfig }: SendChatParams_Internal) => {
 	const {
 		modelName,
 		specialToolFormat,
@@ -296,7 +363,7 @@ const _sendOpenAICompatibleChat = async ({ messages, onText, onFinalMessage, onE
 		: {}
 
 	// instance
-	const openai: OpenAI = await newOpenAICompatibleSDK({ providerName, settingsOfProvider, includeInPayload })
+	const openai: OpenAI = await newOpenAICompatibleSDK({ providerName, settingsOfProvider, includeInPayload, proxyConfig })
 	if (providerName === 'microsoftAzure') {
 		// Required to select the model
 		(openai as AzureOpenAI).deploymentName = modelName;
@@ -333,6 +400,11 @@ const _sendOpenAICompatibleChat = async ({ messages, onText, onFinalMessage, onE
 	let toolId = ''
 	let toolParamsStr = ''
 
+	// Fire onOptionsCreated callback before calling the API
+	if (options) {
+		onOptionsCreated?.({ options });
+	}
+
 	openai.chat.completions
 		.create(options)
 		.then(async response => {
@@ -348,9 +420,22 @@ const _sendOpenAICompatibleChat = async ({ messages, onText, onFinalMessage, onE
 					const index = tool.index
 					if (index !== 0) continue
 
-					toolName += tool.function?.name ?? ''
-					toolParamsStr += tool.function?.arguments ?? '';
-					toolId += tool.id ?? ''
+					// 工具名称只在第一次出现时记录（某些提供商如 Minimax 会在每个 chunk 重复返回 name）
+					if (!toolName) {
+						toolName = tool.function?.name ?? ''
+					}
+
+					// arguments 可能是 null、增量字符串或完整字符串
+					// 需要兼容不同的提供商行为
+					const newArgs = tool.function?.arguments
+					if (newArgs !== null && newArgs !== undefined) {
+						toolParamsStr += newArgs
+					}
+
+					// tool id 只在第一次出现时记录（某些提供商会在每个 chunk 重复返回 id）
+					if (!toolId) {
+						toolId = tool.id ?? ''
+					}
 				}
 
 
@@ -372,12 +457,27 @@ const _sendOpenAICompatibleChat = async ({ messages, onText, onFinalMessage, onE
 			}
 			// on final
 			if (!fullTextSoFar && !fullReasoningSoFar && !toolName) {
-				onError({ message: 'Void: Response from model was empty.', fullError: null })
+				onError({ message: 'CoderChat: Response from model was empty.', fullError: null })
 			}
 			else {
+				// 调试信息：输出工具调用解析结果
+				if (toolName) {
+					console.log(`[工具调用调试] toolName: ${toolName}`)
+					console.log(`[工具调用调试] toolId: ${toolId}`)
+					console.log(`[工具调用调试] toolParamsStr: ${toolParamsStr}`)
+				}
+
 				const toolCall = rawToolCallObjOfParamsStr(toolName, toolParamsStr, toolId)
+
+				// 调试信息：输出解析后的 toolCall 对象
+				if (toolCall) {
+					console.log(`[工具调用调试] 解析成功:`, JSON.stringify(toolCall, null, 2))
+				} else {
+					console.log(`[工具调用调试] 解析失败 - toolName: ${toolName}, toolParamsStr: ${toolParamsStr}`)
+				}
+
 				const toolCallObj = toolCall ? { toolCall } : {}
-				onFinalMessage({ fullText: fullTextSoFar, fullReasoning: fullReasoningSoFar, anthropicReasoning: null, ...toolCallObj });
+				onFinalMessage({ fullText: fullTextSoFar, fullReasoning: fullReasoningSoFar, anthropicReasoning: null, modelName, ...toolCallObj });
 			}
 		})
 		// when error/fail - this catches errors of both .create() and .then(for await)
@@ -395,7 +495,7 @@ type OpenAIModel = {
 	object: 'model';
 	owned_by: string;
 }
-const _openaiCompatibleList = async ({ onSuccess: onSuccess_, onError: onError_, settingsOfProvider, providerName }: ListParams_Internal<OpenAIModel>) => {
+const _openaiCompatibleList = async ({ onSuccess: onSuccess_, onError: onError_, settingsOfProvider, providerName, proxyConfig }: ListParams_Internal<OpenAIModel>) => {
 	const onSuccess = ({ models }: { models: OpenAIModel[] }) => {
 		onSuccess_({ models })
 	}
@@ -403,7 +503,7 @@ const _openaiCompatibleList = async ({ onSuccess: onSuccess_, onError: onError_,
 		onError_({ error })
 	}
 	try {
-		const openai = await newOpenAICompatibleSDK({ providerName, settingsOfProvider })
+		const openai = await newOpenAICompatibleSDK({ providerName, settingsOfProvider, proxyConfig })
 		openai.models.list()
 			.then(async (response) => {
 				const models: OpenAIModel[] = []
@@ -455,7 +555,7 @@ const anthropicTools = (chatMode: ChatMode | null, mcpTools: InternalToolInfo[] 
 
 
 // ------------ ANTHROPIC ------------
-const sendAnthropicChat = async ({ messages, providerName, onText, onFinalMessage, onError, settingsOfProvider, modelSelectionOptions, overridesOfModel, modelName: modelName_, _setAborter, separateSystemMessage, chatMode, mcpTools }: SendChatParams_Internal) => {
+const sendAnthropicChat = async ({ messages, providerName, onText, onFinalMessage, onError, settingsOfProvider, modelSelectionOptions, overridesOfModel, modelName: modelName_, _setAborter, separateSystemMessage, chatMode, mcpTools, proxyConfig }: SendChatParams_Internal) => {
 	const {
 		modelName,
 		specialToolFormat,
@@ -478,15 +578,28 @@ const sendAnthropicChat = async ({ messages, providerName, onText, onFinalMessag
 		: {}
 
 
-	// instance
-	const anthropic = new Anthropic({
+	// instance - configure proxy if needed
+	const anthropicOptions: { apiKey: string; dangerouslyAllowBrowser: boolean; httpAgent?: HttpsProxyAgent<string> } = {
 		apiKey: thisConfig.apiKey,
 		dangerouslyAllowBrowser: true
-	});
+	};
+
+	if (proxyConfig.proxyUrl) {
+		const proxyAgent = new HttpsProxyAgent<string>(proxyConfig.proxyUrl);
+		if (!proxyConfig.proxyStrictSSL) {
+			process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+			(https.globalAgent as any).options = (https.globalAgent as any).options || {};
+			(https.globalAgent as any).options.rejectUnauthorized = false;
+		}
+		console.log(`[Proxy] Anthropic using proxy: ${proxyConfig.proxyUrl}, strictSSL: ${proxyConfig.proxyStrictSSL}`);
+		anthropicOptions.httpAgent = proxyAgent;
+	}
+
+	const anthropic = new Anthropic(anthropicOptions);
 
 	const stream = anthropic.messages.stream({
 		system: separateSystemMessage ?? undefined,
-		messages: messages as AnthropicLLMChatMessage[],
+		messages: messages as Anthropic.Messages.MessageParam[],
 		model: modelName,
 		max_tokens: maxTokens ?? 4_096, // anthropic requires this
 		...includeInPayload,
@@ -568,7 +681,7 @@ const sendAnthropicChat = async ({ messages, providerName, onText, onFinalMessag
 		const toolCall = tools[0] && rawToolCallObjOfAnthropicParams(tools[0])
 		const toolCallObj = toolCall ? { toolCall } : {}
 
-		onFinalMessage({ fullText, fullReasoning, anthropicReasoning, ...toolCallObj })
+		onFinalMessage({ fullText, fullReasoning, anthropicReasoning, modelName, ...toolCallObj })
 	})
 	// on error
 	stream.on('error', (error) => {
@@ -582,7 +695,7 @@ const sendAnthropicChat = async ({ messages, providerName, onText, onFinalMessag
 
 // ------------ MISTRAL ------------
 // https://docs.mistral.ai/api/#tag/fim
-const sendMistralFIM = ({ messages, onFinalMessage, onError, settingsOfProvider, overridesOfModel, modelName: modelName_, _setAborter, providerName }: SendFIMParams_Internal) => {
+const sendMistralFIM = ({ messages, onFinalMessage, onError, settingsOfProvider, overridesOfModel, modelName: modelName_, _setAborter, providerName, proxyConfig }: SendFIMParams_Internal) => {
 	const { modelName, supportsFIM } = getModelCapabilities(providerName, modelName_, overridesOfModel)
 	if (!supportsFIM) {
 		if (modelName === modelName_)
@@ -609,7 +722,7 @@ const sendMistralFIM = ({ messages, onFinalMessage, onError, settingsOfProvider,
 			const fullText = typeof content === 'string' ? content
 				: content.map(chunk => (chunk.type === 'text' ? chunk.text : '')).join('')
 
-			onFinalMessage({ fullText, fullReasoning: '', anthropicReasoning: null });
+			onFinalMessage({ fullText, fullReasoning: '', anthropicReasoning: null, modelName });
 		})
 		.catch(error => {
 			onError({ message: error + '', fullError: error });
@@ -620,12 +733,12 @@ const sendMistralFIM = ({ messages, onFinalMessage, onError, settingsOfProvider,
 // ------------ OLLAMA ------------
 const newOllamaSDK = ({ endpoint }: { endpoint: string }) => {
 	// if endpoint is empty, normally ollama will send to 11434, but we want it to fail - the user should type it in
-	if (!endpoint) throw new Error(`Ollama Endpoint was empty (please enter ${defaultProviderSettings.ollama.endpoint} in Void if you want the default url).`)
+	if (!endpoint) throw new Error(`Ollama Endpoint was empty (please enter ${defaultProviderSettings.ollama.endpoint} in CoderChat if you want the default url).`)
 	const ollama = new Ollama({ host: endpoint })
 	return ollama
 }
 
-const ollamaList = async ({ onSuccess: onSuccess_, onError: onError_, settingsOfProvider }: ListParams_Internal<OllamaModelResponse>) => {
+const ollamaList = async ({ onSuccess: onSuccess_, onError: onError_, settingsOfProvider, proxyConfig }: ListParams_Internal<OllamaModelResponse>) => {
 	const onSuccess = ({ models }: { models: OllamaModelResponse[] }) => {
 		onSuccess_({ models })
 	}
@@ -649,7 +762,7 @@ const ollamaList = async ({ onSuccess: onSuccess_, onError: onError_, settingsOf
 	}
 }
 
-const sendOllamaFIM = ({ messages, onFinalMessage, onError, settingsOfProvider, modelName, _setAborter }: SendFIMParams_Internal) => {
+const sendOllamaFIM = ({ messages, onFinalMessage, onError, settingsOfProvider, modelName, _setAborter, proxyConfig }: SendFIMParams_Internal) => {
 	const thisConfig = settingsOfProvider.ollama
 	const ollama = newOllamaSDK({ endpoint: thisConfig.endpoint })
 
@@ -672,7 +785,7 @@ const sendOllamaFIM = ({ messages, onFinalMessage, onError, settingsOfProvider, 
 				const newText = chunk.response
 				fullText += newText
 			}
-			onFinalMessage({ fullText, fullReasoning: '', anthropicReasoning: null })
+			onFinalMessage({ fullText, fullReasoning: '', anthropicReasoning: null, modelName })
 		})
 		// when error/fail
 		.catch((error) => {
@@ -728,6 +841,7 @@ const sendGeminiChat = async ({
 	modelSelectionOptions,
 	chatMode,
 	mcpTools,
+	proxyConfig,
 }: SendChatParams_Internal) => {
 
 	if (providerName !== 'gemini') throw new Error(`Sending Gemini chat, but provider was ${providerName}`)
@@ -758,8 +872,21 @@ const sendGeminiChat = async ({
 		potentialTools
 		: undefined
 
-	// instance
-	const genAI = new GoogleGenAI({ apiKey: thisConfig.apiKey });
+	// instance - configure proxy if needed
+	const genAIOptions: { apiKey: string; httpAgent?: HttpsProxyAgent<string> } = { apiKey: thisConfig.apiKey };
+
+	if (proxyConfig.proxyUrl) {
+		const proxyAgent = new HttpsProxyAgent<string>(proxyConfig.proxyUrl);
+		if (!proxyConfig.proxyStrictSSL) {
+			process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+			(https.globalAgent as any).options = (https.globalAgent as any).options || {};
+			(https.globalAgent as any).options.rejectUnauthorized = false;
+		}
+		console.log(`[Proxy] Gemini using proxy: ${proxyConfig.proxyUrl}, strictSSL: ${proxyConfig.proxyStrictSSL}`);
+		genAIOptions.httpAgent = proxyAgent;
+	}
+
+	const genAI = new GoogleGenAI(genAIOptions);
 
 
 	// manually parse out tool results if XML
@@ -817,7 +944,7 @@ const sendGeminiChat = async ({
 
 			// on final
 			if (!fullTextSoFar && !fullReasoningSoFar && !toolName) {
-				onError({ message: 'Void: Response from model was empty.', fullError: null })
+				onError({ message: 'CoderChat: Response from model was empty.', fullError: null })
 			} else {
 				if (!toolId) toolId = generateUuid() // ids are empty, but other providers might expect an id
 				const toolCall = rawToolCallObjOfParamsStr(toolName, toolParamsStr, toolId)
@@ -886,6 +1013,46 @@ export const sendLLMMessageToProviderImplementation = {
 		list: ollamaList,
 	},
 	openAICompatible: {
+		sendChat: (params) => _sendOpenAICompatibleChat(params), // using openai's SDK is not ideal (your implementation might not do tools, reasoning, FIM etc correctly), talk to us for a custom integration
+		sendFIM: (params) => _sendOpenAICompatibleFIM(params),
+		list: null,
+	},
+	openAICompatible2: {
+		sendChat: (params) => _sendOpenAICompatibleChat(params), // using openai's SDK is not ideal (your implementation might not do tools, reasoning, FIM etc correctly), talk to us for a custom integration
+		sendFIM: (params) => _sendOpenAICompatibleFIM(params),
+		list: null,
+	},
+	openAICompatible3: {
+		sendChat: (params) => _sendOpenAICompatibleChat(params), // using openai's SDK is not ideal (your implementation might not do tools, reasoning, FIM etc correctly), talk to us for a custom integration
+		sendFIM: (params) => _sendOpenAICompatibleFIM(params),
+		list: null,
+	},
+	openAICompatible4: {
+		sendChat: (params) => _sendOpenAICompatibleChat(params), // using openai's SDK is not ideal (your implementation might not do tools, reasoning, FIM etc correctly), talk to us for a custom integration
+		sendFIM: (params) => _sendOpenAICompatibleFIM(params),
+		list: null,
+	},
+	openAICompatible5: {
+		sendChat: (params) => _sendOpenAICompatibleChat(params), // using openai's SDK is not ideal (your implementation might not do tools, reasoning, FIM etc correctly), talk to us for a custom integration
+		sendFIM: (params) => _sendOpenAICompatibleFIM(params),
+		list: null,
+	},
+	openAICompatible6: {
+		sendChat: (params) => _sendOpenAICompatibleChat(params), // using openai's SDK is not ideal (your implementation might not do tools, reasoning, FIM etc correctly), talk to us for a custom integration
+		sendFIM: (params) => _sendOpenAICompatibleFIM(params),
+		list: null,
+	},
+	openAICompatible7: {
+		sendChat: (params) => _sendOpenAICompatibleChat(params), // using openai's SDK is not ideal (your implementation might not do tools, reasoning, FIM etc correctly), talk to us for a custom integration
+		sendFIM: (params) => _sendOpenAICompatibleFIM(params),
+		list: null,
+	},
+	openAICompatible8: {
+		sendChat: (params) => _sendOpenAICompatibleChat(params), // using openai's SDK is not ideal (your implementation might not do tools, reasoning, FIM etc correctly), talk to us for a custom integration
+		sendFIM: (params) => _sendOpenAICompatibleFIM(params),
+		list: null,
+	},
+	openAICompatible9: {
 		sendChat: (params) => _sendOpenAICompatibleChat(params), // using openai's SDK is not ideal (your implementation might not do tools, reasoning, FIM etc correctly), talk to us for a custom integration
 		sendFIM: (params) => _sendOpenAICompatibleFIM(params),
 		list: null,

@@ -289,7 +289,7 @@ class VoidSettingsService extends Disposable implements IVoidSettingsService {
 			}
 			// add disableSystemMessage feature
 			if (readS.globalSettings.disableSystemMessage === undefined) readS.globalSettings.disableSystemMessage = false;
-			
+
 			// add autoAcceptLLMChanges feature
 			if (readS.globalSettings.autoAcceptLLMChanges === undefined) readS.globalSettings.autoAcceptLLMChanges = false;
 		}
@@ -327,6 +327,30 @@ class VoidSettingsService extends Disposable implements IVoidSettingsService {
 
 				// remove when enough people have had it run (default is now {})
 				if (providerName === 'openAICompatible' && !readS.settingsOfProvider[providerName].headersJSON) {
+					readS.settingsOfProvider[providerName].headersJSON = '{}'
+				}
+				if (providerName === 'openAICompatible2' && !readS.settingsOfProvider[providerName].headersJSON) {
+					readS.settingsOfProvider[providerName].headersJSON = '{}'
+				}
+				if (providerName === 'openAICompatible3' && !readS.settingsOfProvider[providerName].headersJSON) {
+					readS.settingsOfProvider[providerName].headersJSON = '{}'
+				}
+				if (providerName === 'openAICompatible4' && !readS.settingsOfProvider[providerName].headersJSON) {
+					readS.settingsOfProvider[providerName].headersJSON = '{}'
+				}
+				if (providerName === 'openAICompatible5' && !readS.settingsOfProvider[providerName].headersJSON) {
+					readS.settingsOfProvider[providerName].headersJSON = '{}'
+				}
+				if (providerName === 'openAICompatible6' && !readS.settingsOfProvider[providerName].headersJSON) {
+					readS.settingsOfProvider[providerName].headersJSON = '{}'
+				}
+				if (providerName === 'openAICompatible7' && !readS.settingsOfProvider[providerName].headersJSON) {
+					readS.settingsOfProvider[providerName].headersJSON = '{}'
+				}
+				if (providerName === 'openAICompatible8' && !readS.settingsOfProvider[providerName].headersJSON) {
+					readS.settingsOfProvider[providerName].headersJSON = '{}'
+				}
+				if (providerName === 'openAICompatible9' && !readS.settingsOfProvider[providerName].headersJSON) {
 					readS.settingsOfProvider[providerName].headersJSON = '{}'
 				}
 			}

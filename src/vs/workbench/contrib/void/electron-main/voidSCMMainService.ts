@@ -79,4 +79,63 @@ export class VoidSCMService implements IVoidSCMService {
 	gitLog(path: string): Promise<string> {
 		return git('git log --pretty=format:"%h|%s|%ad" --date=short --no-merges -n 5', path)
 	}
+
+	gitRemote(path: string): Promise<string> {
+		return git('git remote get-url origin', path)
+	}
+
+	gitHeadSha(path: string): Promise<string> {
+		return git('git rev-parse HEAD', path)
+	}
+
+	gitStatus(path: string): Promise<string> {
+		// Get both branch name and status
+		return Promise.all([
+			git('git branch --show-current', path),
+			git('git status --porcelain -uall', path)
+		]).then(([branch, status]) => {
+			// If there's no status output, return just the branch
+			if (!status || status.trim() === '') {
+				return `Branch: ${branch}\n(working tree clean)`;
+			}
+
+			// Translate porcelain status codes to human-readable format
+			const statusLines = status.split('\n');
+			const translatedLines = statusLines.map(line => {
+				if (line.length < 4) return line;
+				
+				const statusCode = line.substring(0, 2);
+				// Format is "XY " followed by filename, but for renamed files it's "XY old -> new"
+				// Find the first space and take everything after it
+				const firstSpaceIndex = line.indexOf(' ');
+				const filePath = firstSpaceIndex !== -1 ? line.substring(firstSpaceIndex + 1).trim() : line;
+				
+				// Translate status codes
+				const translations: Record<string, string> = {
+					'M ': '[Modified]',
+					' M': '[Modified]',
+					'MM': '[Modified]',
+					'A ': '[Added]',
+					'??': '[Untracked]',
+					'D ': '[Deleted]',
+					' D': '[Deleted]',
+					'R ': '[Renamed]',
+					'C ': '[Copied]',
+					'U ': '[Unmerged]',
+					'AU': '[Unmerged]',
+					'UD': '[Unmerged]',
+					'UA': '[Unmerged]',
+					'DU': '[Unmerged]',
+					'AA': '[Unmerged]',
+					'DD': '[Unmerged]',
+					'! ': '[Ignored]',
+				};
+				
+				const translated = translations[statusCode] || `[${statusCode}]`;
+				return `${translated} ${filePath}`;
+			});
+
+			return `Branch: ${branch}\n${translatedLines.join('\n')}`;
+		});
+	}
 }

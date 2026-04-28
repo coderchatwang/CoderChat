@@ -3,7 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
  *--------------------------------------------------------------------------------------*/
 
-import { EventLLMMessageOnTextParams, EventLLMMessageOnErrorParams, EventLLMMessageOnFinalMessageParams, ServiceSendLLMMessageParams, MainSendLLMMessageParams, MainLLMMessageAbortParams, ServiceModelListParams, EventModelListOnSuccessParams, EventModelListOnErrorParams, MainModelListParams, OllamaModelResponse, OpenaiCompatibleModelResponse, } from './sendLLMMessageTypes.js';
+import { EventLLMMessageOnTextParams, EventLLMMessageOnErrorParams, EventLLMMessageOnFinalMessageParams, EventLLMMessageOnOptionsCreatedParams, ServiceSendLLMMessageParams, MainSendLLMMessageParams, MainLLMMessageAbortParams, ServiceModelListParams, EventModelListOnSuccessParams, EventModelListOnErrorParams, MainModelListParams, OllamaModelResponse, OpenaiCompatibleModelResponse, } from './sendLLMMessageTypes.js';
 
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
@@ -38,6 +38,7 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 		onText: {} as { [eventId: string]: ((params: EventLLMMessageOnTextParams) => void) },
 		onFinalMessage: {} as { [eventId: string]: ((params: EventLLMMessageOnFinalMessageParams) => void) },
 		onError: {} as { [eventId: string]: ((params: EventLLMMessageOnErrorParams) => void) },
+		onOptionsCreated: {} as { [eventId: string]: ((params: EventLLMMessageOnOptionsCreatedParams) => void) },
 		onAbort: {} as { [eventId: string]: (() => void) }, // NOT sent over the channel, result is instant when we call .abort()
 	}
 
@@ -84,6 +85,9 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 			this._clearChannelHooks(e.requestId);
 			console.error('Error in LLMMessageService:', JSON.stringify(e))
 		}))
+		this._register((this.channel.listen('onOptionsCreated_sendLLMMessage') satisfies Event<EventLLMMessageOnOptionsCreatedParams>)(e => {
+			this.llmMessageHooks.onOptionsCreated[e.requestId]?.(e);
+		}))
 		// .list()
 		this._register((this.channel.listen('onSuccess_list_ollama') satisfies Event<EventModelListOnSuccessParams<OllamaModelResponse>>)(e => {
 			this.listHooks.ollama.success[e.requestId]?.(e)
@@ -101,11 +105,11 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 	}
 
 	sendLLMMessage(params: ServiceSendLLMMessageParams) {
-		const { onText, onFinalMessage, onError, onAbort, modelSelection, ...proxyParams } = params;
+		const { onText, onFinalMessage, onError, onOptionsCreated, onAbort, modelSelection, ...proxyParams } = params;
 
 		// throw an error if no model/provider selected (this should usually never be reached, the UI should check this first, but might happen in cases like Apply where we haven't built much UI/checks yet, good practice to have check logic on backend)
 		if (modelSelection === null) {
-			const message = `Please add a provider in Void's Settings.`
+			const message = `Please add a provider in CoderChat's Settings.`
 			onError({ message, fullError: null })
 			return null
 		}
@@ -125,6 +129,7 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 		this.llmMessageHooks.onText[requestId] = onText
 		this.llmMessageHooks.onFinalMessage[requestId] = onFinalMessage
 		this.llmMessageHooks.onError[requestId] = onError
+		this.llmMessageHooks.onOptionsCreated[requestId] = onOptionsCreated || (() => { })
 		this.llmMessageHooks.onAbort[requestId] = onAbort // used internally only
 
 		// params will be stripped of all its functions over the IPC channel
@@ -186,6 +191,7 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 		delete this.llmMessageHooks.onText[requestId]
 		delete this.llmMessageHooks.onFinalMessage[requestId]
 		delete this.llmMessageHooks.onError[requestId]
+		delete this.llmMessageHooks.onOptionsCreated[requestId]
 
 		delete this.listHooks.ollama.success[requestId]
 		delete this.listHooks.ollama.error[requestId]

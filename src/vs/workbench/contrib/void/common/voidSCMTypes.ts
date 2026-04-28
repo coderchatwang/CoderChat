@@ -31,6 +31,24 @@ export interface IVoidSCMService {
 	 * @param path Path to the git repository
 	 */
 	gitLog(path: string): Promise<string>
+	/**
+	 * Get the git remote URL (origin)
+	 *
+	 * @param path Path to the git repository
+	 */
+	gitRemote(path: string): Promise<string>
+	/**
+	 * Get the current Git HEAD SHA
+	 *
+	 * @param path Path to the git repository
+	 */
+	gitHeadSha(path: string): Promise<string>
+	/**
+	 * Get the git status with branch information
+	 *
+	 * @param path Path to the git repository
+	 */
+	gitStatus(path: string): Promise<string>
 }
 
 export const IVoidSCMService = createDecorator<IVoidSCMService>('voidSCMService')

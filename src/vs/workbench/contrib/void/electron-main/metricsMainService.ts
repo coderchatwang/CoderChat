@@ -135,7 +135,7 @@ export class MetricsMainService extends Disposable implements IMetricsService {
 		}
 
 
-		console.log('Void posthog metrics info:', JSON.stringify(identifyMessage, null, 2))
+		console.log('CoderChat posthog metrics info:', JSON.stringify(identifyMessage, null, 2))
 	}
 
 

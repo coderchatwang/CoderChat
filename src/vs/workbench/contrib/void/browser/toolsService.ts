@@ -8,7 +8,7 @@ import { QueryBuilder } from '../../../services/search/common/queryBuilder.js'
 import { ISearchService } from '../../../services/search/common/search.js'
 import { IEditCodeService } from './editCodeServiceInterface.js'
 import { ITerminalToolService } from './terminalToolService.js'
-import { LintErrorItem, BuiltinToolCallParams, BuiltinToolResultType, BuiltinToolName } from '../common/toolsServiceTypes.js'
+import { LintErrorItem, BuiltinToolCallParams, BuiltinToolResultType, BuiltinToolName, AskUserQuestionItem, AskUserQuestionOption } from '../common/toolsServiceTypes.js'
 import { IVoidModelService } from '../common/voidModelService.js'
 import { EndOfLinePreference } from '../../../../editor/common/model.js'
 import { IVoidCommandBarService } from './voidCommandBarService.js'
@@ -19,6 +19,60 @@ import { RawToolParamsObj } from '../common/sendLLMMessageTypes.js'
 import { MAX_CHILDREN_URIs_PAGE, MAX_FILE_CHARS_PAGE, MAX_TERMINAL_BG_COMMAND_TIME, MAX_TERMINAL_INACTIVE_TIME } from '../common/prompt/prompts.js'
 import { IVoidSettingsService } from '../common/voidSettingsService.js'
 import { generateUuid } from '../../../../base/common/uuid.js'
+
+
+// Helper function to escape XML text content while preserving tags
+const escapeXmlTextContent = (content: string, setCount: (count: number) => void): string => {
+	let charactersEscaped = 0
+	let result = ''
+	let inTag = false
+	let i = 0
+
+	while (i < content.length) {
+		const char = content[i]
+
+		if (char === '<') {
+			inTag = true
+			result += char
+		} else if (char === '>') {
+			inTag = false
+			result += char
+		} else if (!inTag) {
+			// We're in text content, escape special characters
+			if (char === '&') {
+				// Check if it's already an entity
+				if (content.substring(i, i + 5).match(/^&[a-z]+;/) || content.substring(i, i + 3).match(/^&#\d+;/)) {
+					result += char
+				} else {
+					result += '&amp;'
+					charactersEscaped++
+				}
+			} else if (char === '<') {
+				result += '&lt;'
+				charactersEscaped++
+			} else if (char === '>') {
+				result += '&gt;'
+				charactersEscaped++
+			} else if (char === '"') {
+				result += '&quot;'
+				charactersEscaped++
+			} else if (char === "'") {
+				result += '&apos;'
+				charactersEscaped++
+			} else {
+				result += char
+			}
+		} else {
+			// We're in a tag, don't escape
+			result += char
+		}
+
+		i++
+	}
+
+	setCount(charactersEscaped)
+	return result
+}
 
 
 // tool use for AI
@@ -43,6 +97,8 @@ const validateURI = (uriStr: unknown) => {
 	if (uriStr === null) throw new Error(`Invalid LLM output: uri was null.`)
 	if (typeof uriStr !== 'string') throw new Error(`Invalid LLM output format: Provided uri must be a string, but it's a(n) ${typeof uriStr}. Full value: ${JSON.stringify(uriStr)}.`)
 
+	const uriStrTrimL:string= uriStr.trim()
+
 	// Check if it's already a full URI with scheme (e.g., vscode-remote://, file://, etc.)
 	// Look for :// pattern which indicates a scheme is present
 	// Examples of supported URIs:
@@ -51,18 +107,18 @@ const validateURI = (uriStr: unknown) => {
 	// - file:///home/user/file.txt (local file with scheme)
 	// - /home/user/file.txt (local file path, will be converted to file://)
 	// - C:\Users\file.txt (Windows local path, will be converted to file://)
-	if (uriStr.includes('://')) {
+	if (uriStrTrimL.includes('://')) {
 		try {
-			const uri = URI.parse(uriStr)
+			const uri = URI.parse(uriStrTrimL)
 			return uri
 		} catch (e) {
 			// If parsing fails, it's a malformed URI
-			throw new Error(`Invalid URI format: ${uriStr}. Error: ${e}`)
+			throw new Error(`Invalid URI format: ${uriStrTrimL}. Error: ${e}`)
 		}
 	} else {
 		// No scheme present, treat as file path
 		// This handles regular file paths like /home/user/file.txt or C:\Users\file.txt
-		const uri = URI.file(uriStr)
+		const uri = URI.file(uriStrTrimL)
 		return uri
 	}
 }
@@ -289,7 +345,71 @@ export class ToolsService implements IToolsService {
 				const persistentTerminalId = validateProposedTerminalId(terminalIdUnknown);
 				return { persistentTerminalId };
 			},
+			xml_escape: (params: RawToolParamsObj) => {
+				const { uri: uriUnknown, escape_all: escapeAllUnknown } = params
+				const uri = validateURI(uriUnknown)
+				const escapeAll = validateBoolean(escapeAllUnknown, { default: false })
+				return { uri, escapeAll }
+			},
+			ask_user_question: (params: RawToolParamsObj) => {
+				const { questions: questionsUnknown, answers: answersUnknown } = params
 
+				// Parse questions if it's a JSON string
+				let questionsParsed = questionsUnknown
+				if (typeof questionsUnknown === 'string') {
+					try {
+						questionsParsed = JSON.parse(questionsUnknown)
+					} catch (e) {
+						throw new Error('Invalid LLM output: questions must be a valid JSON array.')
+					}
+				}
+
+				// Validate questions array
+				if (!questionsParsed || !Array.isArray(questionsParsed)) {
+					throw new Error('Invalid LLM output: questions must be an array.')
+				}
+
+				if (questionsParsed.length < 1 || questionsParsed.length > 4) {
+					throw new Error('Invalid LLM output: questions must have 1-4 items.')
+				}
+
+				const questions: AskUserQuestionItem[] = questionsParsed.map((q: any, i: number) => {
+					if (!q || typeof q !== 'object') {
+						throw new Error(`Invalid LLM output: question ${i + 1} must be an object.`)
+					}
+
+					const question = typeof q.question === 'string' ? q.question : ''
+					const header = typeof q.header === 'string' ? q.header : `Question ${i + 1}`
+					const multiSelect = typeof q.multiSelect === 'boolean' ? q.multiSelect : false
+
+					if (!q.options || !Array.isArray(q.options)) {
+						throw new Error(`Invalid LLM output: question ${i + 1} options must be an array.`)
+					}
+
+					if (q.options.length < 2 || q.options.length > 4) {
+						throw new Error(`Invalid LLM output: question ${i + 1} must have 2-4 options.`)
+					}
+
+					const options: AskUserQuestionOption[] = q.options.map((opt: any, j: number) => {
+						if (!opt || typeof opt !== 'object') {
+							throw new Error(`Invalid LLM output: question ${i + 1} option ${j + 1} must be an object.`)
+						}
+						return {
+							label: typeof opt.label === 'string' ? opt.label : `Option ${j + 1}`,
+							description: typeof opt.description === 'string' ? opt.description : ''
+						}
+					})
+
+					return { question, header, options, multiSelect }
+				})
+
+				// Validate answers (can be empty object initially)
+				const answers: Record<string, string> = typeof answersUnknown === 'object' && answersUnknown !== null
+					? answersUnknown as Record<string, string>
+					: {}
+
+				return { questions, answers }
+			},
 		}
 
 
@@ -461,6 +581,44 @@ export class ToolsService implements IToolsService {
 				await this.terminalToolService.killPersistentTerminal(persistentTerminalId)
 				return { result: {} }
 			},
+			xml_escape: async ({ uri, escapeAll }) => {
+				await voidModelService.initializeModel(uri)
+				const { model } = await voidModelService.getModelSafe(uri)
+				if (model === null) { throw new Error(`No contents; File does not exist.`) }
+
+				const originalContent = model.getValue(EndOfLinePreference.LF)
+				const originalLength = originalContent.length
+
+				let escapedContent: string
+				let charactersEscaped = 0
+
+				if (escapeAll) {
+					// Escape all special characters
+					escapedContent = originalContent
+						.replace(/&/g, () => { charactersEscaped++; return '&amp;' })
+						.replace(/</g, () => { charactersEscaped++; return '&lt;' })
+						.replace(/>/g, () => { charactersEscaped++; return '&gt;' })
+						.replace(/"/g, () => { charactersEscaped++; return '&quot;' })
+						.replace(/'/g, () => { charactersEscaped++; return '&apos;' })
+				} else {
+					// Intelligent escaping: only escape text content, preserve tags
+					// This is a simplified version - a full implementation would parse XML/HTML
+					escapedContent = escapeXmlTextContent(originalContent, (count) => {
+						charactersEscaped = count
+					})
+				}
+
+				const escapedLength = escapedContent.length
+
+				return { result: { escapedContent, originalLength, escapedLength, charactersEscaped } }
+			},
+			ask_user_question: async ({ questions, answers }) => {
+				// This tool requires user interaction through the UI
+				// The answers will be collected by the permission component and passed back
+				// For now, we return the answers that were passed in
+				// In a full implementation, this would trigger a UI prompt and wait for user response
+				return { result: { answers } }
+			},
 		}
 
 
@@ -538,7 +696,7 @@ export class ToolsService implements IToolsService {
 				}
 				// normal command
 				if (resolveReason.type === 'timeout') {
-					return `${result_}\nTerminal command ran, but was automatically killed by Void after ${MAX_TERMINAL_INACTIVE_TIME}s of inactivity and did not finish successfully. To try with more time, open a persistent terminal and run the command there.`
+					return `${result_}\nTerminal command ran, but was automatically killed by CoderChat after ${MAX_TERMINAL_INACTIVE_TIME}s of inactivity and did not finish successfully. To try with more time, open a persistent terminal and run the command there.`
 				}
 				throw new Error(`Unexpected internal error: Terminal command did not resolve with a valid reason.`)
 			},
@@ -563,6 +721,15 @@ export class ToolsService implements IToolsService {
 			},
 			kill_persistent_terminal: (params, _result) => {
 				return `Successfully closed terminal "${params.persistentTerminalId}".`;
+			},
+			xml_escape: (params, result) => {
+				return `Successfully escaped ${result.charactersEscaped} characters in ${params.uri.fsPath}. Original length: ${result.originalLength}, Escaped length: ${result.escapedLength}.`
+			},
+			ask_user_question: (params, result) => {
+				const answersStr = Object.entries(result.answers)
+					.map(([header, answer]) => `${header}: ${Array.isArray(answer) ? answer.join(', ') : answer}`)
+					.join('\n')
+				return `User answers:\n${answersStr}`
 			},
 		}
 

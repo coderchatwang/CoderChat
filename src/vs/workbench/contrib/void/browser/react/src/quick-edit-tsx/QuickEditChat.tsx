@@ -11,6 +11,7 @@ import { ButtonStop, ButtonSubmit, IconX, VoidChatArea } from '../sidebar-tsx/Si
 import { VOID_CTRL_K_ACTION_ID } from '../../../actionIDs.js';
 import { useRefState } from '../util/helpers.js';
 import { isFeatureNameDisabled } from '../../../../../../../workbench/contrib/void/common/voidSettingsTypes.js';
+import { useVoidChatI18n } from '../util/i18n.js';
 
 
 
@@ -23,6 +24,7 @@ export const QuickEditChat = ({
 	initText
 }: QuickEditPropsType) => {
 
+	const t = useVoidChatI18n()
 	const accessor = useAccessor()
 	const editCodeService = accessor.get('IEditCodeService')
 	const sizerRef = useRef<HTMLDivElement | null>(null)
@@ -65,13 +67,15 @@ export const QuickEditChat = ({
 		if (isStreamingRef.current) return
 		textAreaFnsRef.current?.disable()
 
+		const ctrlKZone = editCodeService.diffAreaOfId[diffareaid]
+		if (ctrlKZone?.type !== 'CtrlKZone') return
+		await editCodeService.callBeforeApplyOrEdit(ctrlKZone._URI)
 		const opts = {
 			from: 'QuickEdit',
 			diffareaid,
 			startBehavior: 'keep-conflicts',
 		} as const
 
-		await editCodeService.callBeforeApplyOrEdit(opts)
 		const [newApplyingUri, applyDonePromise] = editCodeService.startApplying(opts) ?? []
 		// catch any errors by interrupting the stream
 		applyDonePromise?.catch(e => { if (newApplyingUri) editCodeService.interruptCtrlKStreaming({ diffareaid }) })
@@ -118,7 +122,7 @@ export const QuickEditChat = ({
 					})
 				}, [textAreaRef_, onX])}
 				fnsRef={textAreaFnsRef}
-				placeholder="Enter instructions..."
+				placeholder={t.enterInstructions()}
 				onChangeText={useCallback((newStr: string) => {
 					setInstructionsAreEmpty(!newStr)
 					onChangeText_(newStr)

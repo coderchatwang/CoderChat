@@ -1,41 +1,85 @@
-# Welcome to Void.
+[English](./README.md) | [中文](./README.zh-CN.md)
 
 <div align="center">
 	<img
 		src="./src/vs/workbench/browser/parts/editor/media/slice_of_void.png"
-	 	alt="Void Welcome"
+	 	alt="CoderChat Welcome"
 		width="300"
 	 	height="300"
 	/>
 </div>
 
-Void is the open-source Cursor alternative.
+## CoderChat
 
-Use AI agents on your codebase, checkpoint and visualize changes, and bring any model or host locally. Void sends messages directly to providers without retaining your data.
+Like Void, CoderChat is an alternative to tools such as Cursor, Qoder, Trae, and CodeBuddy. It primarily addresses their limitations: inability to freely configure models, opaque pricing, and lack of support for data compliance in special scenarios.
 
-This repo contains the full sourcecode for Void. If you're new, welcome!
+CoderChat is developed from Void and serves as an upgraded version. This repository retains all features from Void while providing deep optimizations and continuous feature iteration.
 
-- 🧭 [Website](https://voideditor.com)
+Use AI agents on your codebase, checkpoint and visualize changes, and bring any model or host locally. CoderChat sends messages directly to providers without retaining your data.
 
-- 👋 [Discord](https://discord.gg/RSNjgaugJs)
+## Preview
 
-- 🚙 [Project Board](https://github.com/orgs/voideditor/projects/2)
+<div align="center">
+	<img
+		src="./doc/imgs/chat.png"
+	 	alt="chat"
+	/>
+</div>
 
+## Usage & Configuration
 
-## Note
+> **Important**: The values of `contextWindow` and `reservedOutputTokenSpace` must be configured according to the specific model you are using. Additionally, `specialToolFormat` must be set correctly; otherwise, unexpected issues may occur. Supported values for `specialToolFormat` are `'openai-style'`, `'anthropic-style'`, and `'gemini-style'`. If left empty, it defaults to `'openai-style'`.
 
-We've paused work on the Void IDE (this repo) to explore a few novel coding ideas. We want to focus on innovation over feature-parity. Void will continue running, but without maintenance some existing features might stop working over time. Depending on the direction of our new work, we might not resume Void as an IDE.
+Below is the configuration reference for the GLM-5 model:
 
-We won't be actively reviewing Issues and PRs, but we will respond to all [email](mailto:hello@voideditor.com) inquiries on building and maintaining your own version of Void while we're paused. 
+```json
+{
+  "contextWindow": 128000,
+  "reservedOutputTokenSpace": 4096,
+  "supportsSystemMessage": "system-role",
+  "specialToolFormat": "openai-style",
+  "supportsVision": false,
+  "reasoningCapabilities": {
+    "supportsReasoning": true,
+    "canTurnOffReasoning": false,
+    "canIOReasoning": false,
+    "openSourceThinkTags": ["<think>", "</think>"]
+  }
+}
+```
+
+> **Note**: Enabling `supportsVision` enables image input support. Only enable this if the model actually supports vision capabilities.
+
+Example configuration for a vision-capable model (e.g., Kimi-K2.5):
+
+```json
+{
+  "contextWindow": 128000,
+  "reservedOutputTokenSpace": 4096,
+  "supportsSystemMessage": "system-role",
+  "specialToolFormat": "openai-style",
+  "supportsVision": true,
+  "reasoningCapabilities": {
+    "supportsReasoning": true,
+    "canTurnOffReasoning": false,
+    "canIOReasoning": false,
+    "openSourceThinkTags": ["<think>", "</think>"]
+  }
+}
+```
+
+## Important Notes
+
+- More than 95% of the code in this project was developed by **CoderChat + GLM5 + MiniMax-M2.7**.
+- Development configuration for this project can be customized using CoderChat itself. Therefore, the author will not provide separate usage documentation.
+- For documentation related to Void, please refer to the official Void project documentation.
+- Although CoderChat supports local models and arbitrary model configuration via APIs, tests have shown that models without strong agent coding capabilities cannot reliably deliver production-grade results. For recommended models, refer to the coding plan supported model lists from mainstream providers. The primary model used in the development of this project is GLM-5.
 
 ## Reference
 
-Void is a fork of the [vscode](https://github.com/microsoft/vscode) repository. For a guide to the codebase, see [VOID_CODEBASE_GUIDE](https://github.com/voideditor/void/blob/main/VOID_CODEBASE_GUIDE.md).
+- CoderChat is a fork of [Void](https://github.com/voideditor/void/tree/main).
+- Void is a fork of the [vscode](https://github.com/microsoft/vscode) repository.
 
-For a guide on how to develop your own version of Void, see [HOW_TO_CONTRIBUTE](https://github.com/voideditor/void/blob/main/HOW_TO_CONTRIBUTE.md) and [void-builder](https://github.com/voideditor/void-builder).
+## License
 
-
-
-
-## Support
-You can always reach us in our Discord server or contact us via email: hello@voideditor.com.
+This project is licensed under the **Apache License 2.0**. See the [LICENSE](LICENSE) file for details.

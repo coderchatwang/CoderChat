@@ -23,6 +23,7 @@
 	--void-fg-4: var(--vscode-list-deemphasizedForeground);
 
 	--void-warning: var(--vscode-charts-yellow);
+	--void-success: #22c55e;
 
 	--void-border-1: var(--vscode-commandCenter-activeBorder);
 	--void-border-2: var(--vscode-commandCenter-border);
@@ -31,6 +32,38 @@
 
 	--void-ring-color: #007FD4;
 	--void-link-color: #007FD4;
+}
+
+/* Thought process / exploration panel styles */
+@layer components {
+	.thought-process {
+		@apply mb-4 text-sm;
+	}
+
+	.thought-header {
+		@apply flex items-center cursor-pointer select-none;
+	}
+
+	.thought-content {
+		@apply transition-all duration-200;
+	}
+
+	.log-item {
+		@apply flex items-start leading-relaxed;
+	}
+
+	.user-bubble {
+		@apply rounded-lg max-w-[80%];
+	}
+
+	/* Code block header styles */
+	.code-header {
+		@apply flex justify-between items-center py-1 px-2 border-b border-void-border-3;
+	}
+
+	.code-header-lang {
+		@apply text-void-fg-3 font-medium text-xs;
+	}
 }
 
 .select-child-restyle select {

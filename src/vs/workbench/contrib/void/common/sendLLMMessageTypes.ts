@@ -8,6 +8,13 @@ import { ToolName, ToolParamName } from './toolsServiceTypes.js'
 import { ChatMode, ModelSelection, ModelSelectionOptions, OverridesOfModel, ProviderName, RefreshableProviderName, SettingsOfProvider } from './voidSettingsTypes.js'
 
 
+// Proxy configuration from VSCode settings
+export type ProxyConfig = {
+	proxyUrl?: string;
+	proxyStrictSSL: boolean;
+}
+
+
 export const errorDetails = (fullError: Error | null): string | null => {
 	if (fullError === null) {
 		return null
@@ -29,6 +36,10 @@ export const getErrorMessage: (error: unknown) => string = (error) => {
 
 
 
+// Image content types for different providers
+export type AnthropicImageContent = { type: 'image'; source: { type: 'base64'; media_type: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'; data: string; } }
+export type OpenAIImageContent = { type: 'image_url'; image_url: { url: string; } }
+
 export type AnthropicLLMChatMessage = {
 	role: 'assistant',
 	content: string | (AnthropicReasoning | { type: 'text'; text: string }
@@ -37,12 +48,15 @@ export type AnthropicLLMChatMessage = {
 } | {
 	role: 'user',
 	content: string | (
-		{ type: 'text'; text: string; } | { type: 'tool_result'; tool_use_id: string; content: string; }
+		{ type: 'text'; text: string; } | { type: 'tool_result'; tool_use_id: string; content: string; } | AnthropicImageContent
 	)[]
 }
 export type OpenAILLMChatMessage = {
-	role: 'system' | 'user' | 'developer';
+	role: 'system' | 'developer';
 	content: string;
+} | {
+	role: 'user',
+	content: string | ({ type: 'text'; text: string; } | OpenAIImageContent)[];
 } | {
 	role: 'assistant',
 	content: string | (AnthropicReasoning | { type: 'text'; text: string })[];
@@ -52,6 +66,9 @@ export type OpenAILLMChatMessage = {
 	content: string;
 	tool_call_id: string;
 }
+
+// Gemini image part type
+export type GeminiImagePart = { inlineData: { mimeType: string; data: string; } }
 
 export type GeminiLLMChatMessage = {
 	role: 'model'
@@ -64,6 +81,7 @@ export type GeminiLLMChatMessage = {
 	parts: (
 		| { text: string; }
 		| { functionResponse: { id: string; name: ToolName, response: { output: string } } }
+		| GeminiImagePart
 	)[];
 }
 
@@ -92,9 +110,10 @@ export type RawToolCallObj = {
 export type AnthropicReasoning = ({ type: 'thinking'; thinking: any; signature: string; } | { type: 'redacted_thinking', data: any })
 
 export type OnText = (p: { fullText: string; fullReasoning: string; toolCall?: RawToolCallObj }) => void
-export type OnFinalMessage = (p: { fullText: string; fullReasoning: string; toolCall?: RawToolCallObj; anthropicReasoning: AnthropicReasoning[] | null }) => void // id is tool_use_id
+export type OnFinalMessage = (p: { fullText: string; fullReasoning: string; toolCall?: RawToolCallObj; anthropicReasoning: AnthropicReasoning[] | null; modelName?: string }) => void // id is tool_use_id
 export type OnError = (p: { message: string; fullError: Error | null }) => void
 export type OnAbort = () => void
+export type OnOptionsCreated = (p: { options: any }) => void
 export type AbortRef = { current: (() => void) | null }
 
 
@@ -114,6 +133,7 @@ export type ServiceSendLLMMessageParams = {
 	onText: OnText;
 	onFinalMessage: OnFinalMessage;
 	onError: OnError;
+	onOptionsCreated?: OnOptionsCreated;
 	logging: { loggingName: string, loggingExtras?: { [k: string]: any } };
 	modelSelection: ModelSelection | null;
 	modelSelectionOptions: ModelSelectionOptions | undefined;
@@ -126,6 +146,7 @@ export type SendLLMMessageParams = {
 	onText: OnText;
 	onFinalMessage: OnFinalMessage;
 	onError: OnError;
+	onOptionsCreated?: OnOptionsCreated;
 	logging: { loggingName: string, loggingExtras?: { [k: string]: any } };
 	abortRef: AbortRef;
 
@@ -135,12 +156,13 @@ export type SendLLMMessageParams = {
 
 	settingsOfProvider: SettingsOfProvider;
 	mcpTools: InternalToolInfo[] | undefined;
+	proxyConfig: ProxyConfig;
 } & SendLLMType
 
 
 
 // can't send functions across a proxy, use listeners instead
-export type BlockedMainLLMMessageParams = 'onText' | 'onFinalMessage' | 'onError' | 'abortRef'
+export type BlockedMainLLMMessageParams = 'onText' | 'onFinalMessage' | 'onError' | 'onOptionsCreated' | 'abortRef' | 'proxyConfig'
 export type MainSendLLMMessageParams = Omit<SendLLMMessageParams, BlockedMainLLMMessageParams> & { requestId: string } & SendLLMType
 
 export type MainLLMMessageAbortParams = { requestId: string }
@@ -148,6 +170,7 @@ export type MainLLMMessageAbortParams = { requestId: string }
 export type EventLLMMessageOnTextParams = Parameters<OnText>[0] & { requestId: string }
 export type EventLLMMessageOnFinalMessageParams = Parameters<OnFinalMessage>[0] & { requestId: string }
 export type EventLLMMessageOnErrorParams = Parameters<OnError>[0] & { requestId: string }
+export type EventLLMMessageOnOptionsCreatedParams = Parameters<OnOptionsCreated>[0] & { requestId: string }
 
 // service -> main -> internal -> event (back to main)
 // (browser)
@@ -193,6 +216,7 @@ export type OpenaiCompatibleModelResponse = {
 export type ModelListParams<ModelResponse> = {
 	providerName: ProviderName;
 	settingsOfProvider: SettingsOfProvider;
+	proxyConfig: ProxyConfig;
 	onSuccess: (param: { models: ModelResponse[] }) => void;
 	onError: (param: { error: string }) => void;
 }
@@ -204,7 +228,7 @@ export type ServiceModelListParams<modelResponse> = {
 	onError: (param: { error: any }) => void;
 }
 
-type BlockedMainModelListParams = 'onSuccess' | 'onError'
+type BlockedMainModelListParams = 'onSuccess' | 'onError' | 'proxyConfig'
 export type MainModelListParams<modelResponse> = Omit<ModelListParams<modelResponse>, BlockedMainModelListParams> & { providerName: RefreshableProviderName, requestId: string }
 
 export type EventModelListOnSuccessParams<modelResponse> = Parameters<ModelListParams<modelResponse>['onSuccess']>[0] & { requestId: string }

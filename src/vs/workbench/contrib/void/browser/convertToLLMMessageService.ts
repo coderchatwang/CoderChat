@@ -5,10 +5,10 @@ import { registerSingleton, InstantiationType } from '../../../../platform/insta
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
-import { ChatMessage } from '../common/chatThreadServiceTypes.js';
+import { ChatMessage, ImageAttachment } from '../common/chatThreadServiceTypes.js';
 import { getIsReasoningEnabledState, getReservedOutputTokenSpace, getModelCapabilities } from '../common/modelCapabilities.js';
 import { reParsedToolXMLString, chat_systemMessage } from '../common/prompt/prompts.js';
-import { AnthropicLLMChatMessage, AnthropicReasoning, GeminiLLMChatMessage, LLMChatMessage, LLMFIMMessage, OpenAILLMChatMessage, RawToolParamsObj } from '../common/sendLLMMessageTypes.js';
+import { AnthropicLLMChatMessage, AnthropicReasoning, GeminiLLMChatMessage, LLMChatMessage, LLMFIMMessage, OpenAILLMChatMessage, RawToolParamsObj, AnthropicImageContent, OpenAIImageContent } from '../common/sendLLMMessageTypes.js';
 import { IVoidSettingsService } from '../common/voidSettingsService.js';
 import { ChatMode, FeatureName, ModelSelection, ProviderName } from '../common/voidSettingsTypes.js';
 import { IDirectoryStrService } from '../common/directoryStrService.js';
@@ -18,6 +18,9 @@ import { URI } from '../../../../base/common/uri.js';
 import { EndOfLinePreference } from '../../../../editor/common/model.js';
 import { ToolName } from '../common/toolsServiceTypes.js';
 import { IMCPService } from '../common/mcpService.js';
+import { ISCMService } from '../../scm/common/scm.js';
+import { INativeWorkbenchEnvironmentService } from '../../../services/environment/electron-sandbox/environmentService.js';
+import { IVoidSCMService } from '../common/voidSCMTypes.js';
 
 export const EMPTY_MESSAGE = '(empty message)'
 
@@ -32,6 +35,7 @@ type SimpleLLMMessage = {
 } | {
 	role: 'user';
 	content: string;
+	images: ImageAttachment[] | null;
 } | {
 	role: 'assistant';
 	content: string;
@@ -69,6 +73,33 @@ openai on developer system message - https://cdn.openai.com/spec/model-spec-2024
 */
 
 
+// Helper function to convert images to OpenAI format
+const imagesToOpenAIFormat = (images: ImageAttachment[] | null): OpenAIImageContent[] => {
+	if (!images || images.length === 0) return []
+	return images.map(img => ({
+		type: 'image_url' as const,
+		image_url: {
+			url: `data:${img.mediaType};base64,${img.base64}`
+		}
+	}))
+}
+
+// Valid media types for Anthropic images
+type AnthropicMediaType = 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'
+
+// Helper function to convert images to Anthropic format
+const imagesToAnthropicFormat = (images: ImageAttachment[] | null): AnthropicImageContent[] => {
+	if (!images || images.length === 0) return []
+	return images.map(img => ({
+		type: 'image' as const,
+		source: {
+			type: 'base64' as const,
+			media_type: img.mediaType as AnthropicMediaType,
+			data: img.base64
+		}
+	}))
+}
+
 const prepareMessages_openai_tools = (messages: SimpleLLMMessage[]): AnthropicOrOpenAILLMMessage[] => {
 
 	const newMessages: OpenAILLMChatMessage[] = [];
@@ -76,8 +107,36 @@ const prepareMessages_openai_tools = (messages: SimpleLLMMessage[]): AnthropicOr
 	for (let i = 0; i < messages.length; i += 1) {
 		const currMsg = messages[i]
 
+		if (currMsg.role === 'user') {
+			// Handle user message with potential images
+			const imageContents = imagesToOpenAIFormat(currMsg.images)
+			if (imageContents.length > 0) {
+				newMessages.push({
+					role: 'user',
+					content: [
+						{ type: 'text', text: currMsg.content || EMPTY_MESSAGE },
+						...imageContents
+					]
+				})
+			} else {
+				newMessages.push({
+					role: 'user',
+					content: currMsg.content
+				})
+			}
+			continue
+		}
+
+		if (currMsg.role === 'assistant') {
+			newMessages.push({
+				role: 'assistant',
+				content: currMsg.content
+			})
+			continue
+		}
+
 		if (currMsg.role !== 'tool') {
-			newMessages.push(currMsg)
+			newMessages.push(currMsg as any)
 			continue
 		}
 
@@ -164,9 +223,21 @@ const prepareMessages_anthropic_tools = (messages: SimpleLLMMessage[], supportsA
 		}
 
 		if (currMsg.role === 'user') {
-			newMessages[i] = {
-				role: 'user',
-				content: currMsg.content,
+			// Handle user message with potential images
+			const imageContents = imagesToAnthropicFormat(currMsg.images)
+			if (imageContents.length > 0) {
+				newMessages[i] = {
+					role: 'user',
+					content: [
+						...imageContents,
+						{ type: 'text' as const, text: currMsg.content || EMPTY_MESSAGE }
+					]
+				}
+			} else {
+				newMessages[i] = {
+					role: 'user',
+					content: currMsg.content,
+				}
 			}
 			continue
 		}
@@ -222,9 +293,29 @@ const prepareMessages_XML_tools = (messages: SimpleLLMMessage[], supportsAnthrop
 			})
 		}
 		// add user or tool to the previous user message
-		else if (c.role === 'user' || c.role === 'tool') {
-			if (c.role === 'tool')
-				c.content = `<${c.name}_result>\n${c.content}\n</${c.name}_result>`
+		else if (c.role === 'user') {
+			// Handle user message with potential images
+			const imageContents = imagesToAnthropicFormat(c.images)
+			if (imageContents.length > 0) {
+				llmChatMessages.push({
+					role: 'user',
+					content: [
+						...imageContents,
+						{ type: 'text' as const, text: c.content || EMPTY_MESSAGE }
+					]
+				})
+			} else {
+				if (llmChatMessages.length === 0 || llmChatMessages[llmChatMessages.length - 1].role !== 'user')
+					llmChatMessages.push({
+						role: 'user',
+						content: c.content
+					})
+				else
+					llmChatMessages[llmChatMessages.length - 1].content += '\n\n' + c.content
+			}
+		}
+		else if (c.role === 'tool') {
+			c.content = `<${c.name}_result>\n${c.content}\n</${c.name}_result>`
 
 			if (llmChatMessages.length === 0 || llmChatMessages[llmChatMessages.length - 1].role !== 'user')
 				llmChatMessages.push({
@@ -271,8 +362,12 @@ const prepareOpenAIOrAnthropicMessages = ({
 	// A COMPLETE HACK: last message is system message for context purposes
 
 	const sysMsgParts: string[] = []
-	if (aiInstructions) sysMsgParts.push(`GUIDELINES (from the user's .voidrules file):\n${aiInstructions}`)
 	if (systemMessage) sysMsgParts.push(systemMessage)
+	if (aiInstructions) sysMsgParts.push(`
+--- Context from user's .voidrules file ---\n
+${aiInstructions}
+--- End of Context from user's .voidrules file ---
+	`)
 	const combinedSystemMessage = sysMsgParts.join('\n\n')
 
 	messages.unshift({ role: 'system', content: combinedSystemMessage })
@@ -478,6 +573,10 @@ const prepareGeminiMessages = (messages: AnthropicLLMChatMessage[]) => {
 						if (!latestToolName) return null
 						return { functionResponse: { id: c.tool_use_id, name: latestToolName, response: { output: c.content } } }
 					}
+					else if (c.type === 'image') {
+						// Convert Anthropic image format to Gemini format
+						return { inlineData: { mimeType: c.source.media_type, data: c.source.data } }
+					}
 					else return null
 				}).filter(m => !!m)
 				return { role: 'user', parts, }
@@ -522,7 +621,7 @@ const prepareMessages = (params: {
 export interface IConvertToLLMMessageService {
 	readonly _serviceBrand: undefined;
 	prepareLLMSimpleMessages: (opts: { simpleMessages: SimpleLLMMessage[], systemMessage: string, modelSelection: ModelSelection | null, featureName: FeatureName }) => { messages: LLMChatMessage[], separateSystemMessage: string | undefined }
-	prepareLLMChatMessages: (opts: { chatMessages: ChatMessage[], chatMode: ChatMode, modelSelection: ModelSelection | null }) => Promise<{ messages: LLMChatMessage[], separateSystemMessage: string | undefined }>
+	prepareLLMChatMessages: (opts: { chatMessages: ChatMessage[], chatMode: ChatMode, modelSelection: ModelSelection | null }) => Promise<{ messages: LLMChatMessage[], separateSystemMessage: string | undefined, combinedSystemMessage: string }>
 	prepareFIMMessage(opts: { messages: LLMFIMMessage, }): { prefix: string, suffix: string, stopTokens: string[] }
 }
 
@@ -541,6 +640,9 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		@IVoidSettingsService private readonly voidSettingsService: IVoidSettingsService,
 		@IVoidModelService private readonly voidModelService: IVoidModelService,
 		@IMCPService private readonly mcpService: IMCPService,
+		@ISCMService private readonly scmService: ISCMService,
+		@INativeWorkbenchEnvironmentService private readonly environmentService: INativeWorkbenchEnvironmentService,
+		@IVoidSCMService private readonly voidSCMService: IVoidSCMService,
 	) {
 		super()
 	}
@@ -593,7 +695,42 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		const mcpTools = this.mcpService.getMCPTools()
 
 		const persistentTerminalIDs = this.terminalToolService.listPersistentTerminalIds()
-		const systemMessage = chat_systemMessage({ workspaceFolders, openedURIs, directoryStr, activeURI, persistentTerminalIDs, chatMode, mcpTools, includeXMLToolDefinitions })
+
+		// Get platform and OS version from environment service
+		const platformStr = this.environmentService.os ?
+			(this.environmentService.os.release ? 'win32' : 'unknown') :
+			(process.platform || 'unknown');
+		const osVersion = this.environmentService.os?.release || 'unknown';
+
+		// Check if workspace folders are git repositories
+		let isGitRepository = false;
+		let gitRemoteUrl: string | undefined;
+		let gitHeadSha: string | undefined;
+		let gitStatus: string | undefined;
+
+		if (workspaceFolders.length > 0) {
+			const repositories = [...this.scmService.repositories];
+			isGitRepository = repositories.length > 0;
+
+			if (isGitRepository) {
+				const firstRepo = repositories[0] as any;
+				const repoPath = firstRepo?.provider?.rootUri?.fsPath;
+
+				if (repoPath) {
+					try {
+						[gitRemoteUrl, gitHeadSha, gitStatus] = await Promise.all([
+							this.voidSCMService.gitRemote(repoPath),
+							this.voidSCMService.gitHeadSha(repoPath),
+							this.voidSCMService.gitStatus(repoPath)
+						]);
+					} catch (e) {
+						console.warn('Failed to get git info:', e);
+					}
+				}
+			}
+		}
+
+		const systemMessage = chat_systemMessage({ workspaceFolders, openedURIs, directoryStr, activeURI, persistentTerminalIDs, chatMode, mcpTools, includeXMLToolDefinitions, platform: platformStr, osVersion, isGitRepository, gitRemoteUrl, gitHeadSha, gitStatus })
 		return systemMessage
 	}
 
@@ -608,6 +745,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		for (const m of chatMessages) {
 			if (m.role === 'checkpoint') continue
 			if (m.role === 'interrupted_streaming_tool') continue
+			if (m.role === 'system') continue // system messages are for display only, not sent to LLM
 			if (m.role === 'assistant') {
 				simpleLLMMessages.push({
 					role: m.role,
@@ -628,6 +766,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 				simpleLLMMessages.push({
 					role: m.role,
 					content: m.content,
+					images: m.images,
 				})
 			}
 		}
@@ -668,7 +807,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		return { messages, separateSystemMessage };
 	}
 	prepareLLMChatMessages: IConvertToLLMMessageService['prepareLLMChatMessages'] = async ({ chatMessages, chatMode, modelSelection }) => {
-		if (modelSelection === null) return { messages: [], separateSystemMessage: undefined }
+		if (modelSelection === null) return { messages: [], separateSystemMessage: undefined, combinedSystemMessage: '' }
 
 		const { overridesOfModel } = this.voidSettingsService.state
 
@@ -691,6 +830,15 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		const reservedOutputTokenSpace = getReservedOutputTokenSpace(providerName, modelName, { isReasoningEnabled, overridesOfModel })
 		const llmMessages = this._chatMessagesToSimpleMessages(chatMessages)
 
+		// Build the combined system message for display
+		const sysMsgParts: string[] = []
+		if (systemMessage) sysMsgParts.push(systemMessage)
+		if (aiInstructions) sysMsgParts.push(`
+--- Context from user's .voidrules file ---\n
+${aiInstructions}
+--- End of Context from user's .voidrules file ---`)
+		const combinedSystemMessage = sysMsgParts.join('\n\n')
+
 		const { messages, separateSystemMessage } = prepareMessages({
 			messages: llmMessages,
 			systemMessage,
@@ -702,7 +850,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			reservedOutputTokenSpace,
 			providerName,
 		})
-		return { messages, separateSystemMessage };
+		return { messages, separateSystemMessage, combinedSystemMessage };
 	}
 
 

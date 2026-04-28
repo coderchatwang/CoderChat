@@ -12,6 +12,7 @@ import { ScrollType } from '../../../../../../../editor/common/editorCommon.js';
 import { acceptAllBg, acceptBorder, buttonFontSize, buttonTextColor, rejectAllBg, rejectBg, rejectBorder } from '../../../../common/helpers/colors.js';
 import { VoidCommandBarProps } from '../../../voidCommandBarService.js';
 import { Check, EllipsisVertical, Menu, MoveDown, MoveLeft, MoveRight, MoveUp, X } from 'lucide-react';
+import { useVoidChatI18n } from '../util/i18n.js';
 import {
 	VOID_GOTO_NEXT_DIFF_ACTION_ID,
 	VOID_GOTO_PREV_DIFF_ACTION_ID,
@@ -84,6 +85,7 @@ export const RejectAllButtonWrapper = ({ text, onClick, className, ...props }: {
 
 
 export const VoidCommandBar = ({ uri, editor }: VoidCommandBarProps) => {
+	const t = useVoidChatI18n()
 	const accessor = useAccessor()
 	const editCodeService = accessor.get('IEditCodeService')
 	const editorService = accessor.get('ICodeEditorService')
@@ -271,10 +273,10 @@ export const VoidCommandBar = ({ uri, editor }: VoidCommandBarProps) => {
 					</button>
 					<span className={`text-xs whitespace-nowrap px-1 ${!isADiffInThisFile ? 'opacity-70' : ''}`}>
 						{isADiffInThisFile
-							? `Diff ${(currDiffIdx ?? 0) + 1} of ${sortedDiffIds.length}`
+							? t.diffOf((currDiffIdx ?? 0) + 1, sortedDiffIds.length)
 							: streamState === 'streaming'
-								? 'No changes yet'
-								: 'No changes'
+								? t.noChangesYet()
+								: t.noChanges()
 						}
 
 					</span>
