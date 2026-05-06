@@ -534,6 +534,8 @@ export const isFeatureNameDisabled = (featureName: FeatureName, settingsState: V
 export type ChatMode = 'agent' | 'gather' | 'normal'
 
 
+export type DefaultLang = 'auto' | 'en' | 'zh'
+
 export type GlobalSettings = {
 	autoRefreshModels: boolean;
 	aiInstructions: string;
@@ -549,6 +551,7 @@ export type GlobalSettings = {
 	disableSystemMessage: boolean;
 	autoAcceptLLMChanges: boolean;
 	showJsonDebug: boolean;
+	defaultLang: DefaultLang;
 }
 
 export const defaultGlobalSettings: GlobalSettings = {
@@ -566,6 +569,7 @@ export const defaultGlobalSettings: GlobalSettings = {
 	disableSystemMessage: false,
 	autoAcceptLLMChanges: false,
 	showJsonDebug: false,
+	defaultLang: 'auto',
 }
 
 export type GlobalSettingName = keyof GlobalSettings

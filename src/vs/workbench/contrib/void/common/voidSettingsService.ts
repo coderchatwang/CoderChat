@@ -292,6 +292,9 @@ class VoidSettingsService extends Disposable implements IVoidSettingsService {
 
 			// add autoAcceptLLMChanges feature
 			if (readS.globalSettings.autoAcceptLLMChanges === undefined) readS.globalSettings.autoAcceptLLMChanges = false;
+
+			// add defaultLang feature
+			if (readS.globalSettings.defaultLang === undefined) readS.globalSettings.defaultLang = 'auto';
 		}
 		catch (e) {
 			readS = defaultState()

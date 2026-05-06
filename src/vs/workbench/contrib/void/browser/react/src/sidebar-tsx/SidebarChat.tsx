@@ -6,11 +6,11 @@
 import React, { ButtonHTMLAttributes, FormEvent, FormHTMLAttributes, Fragment, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 
-import { useAccessor, useChatThreadsState, useChatThreadsStreamState, useSettingsState, useActiveURI, useCommandBarState, useFullChatThreadsStreamState } from '../util/services.js';
+import { useAccessor, useChatThreadsState, useChatThreadsStreamState, useSettingsState, useActiveURI, useCommandBarState, useFullChatThreadsStreamState, useCurrentThreadId, useCurrentThreadMessages, useCurrentThreadStreamState, useThreadState } from '../util/services.js';
 import { useVoidChatI18n } from '../util/i18n.js';
 import { ScrollType } from '../../../../../../../editor/common/editorCommon.js';
 
-import { ChatMarkdownRender, ChatMessageLocation, getApplyBoxId } from '../markdown/ChatMarkdownRender.js';
+import { ChatMarkdownRender, ChatMessageLocation, getApplyBoxId, prefetchTokensBatch } from '../markdown/ChatMarkdownRender.js';
 import { URI } from '../../../../../../../base/common/uri.js';
 import { IDisposable } from '../../../../../../../base/common/lifecycle.js';
 import { ErrorDisplay } from './ErrorDisplay.js';
@@ -25,7 +25,7 @@ import { WarningBox } from '../void-settings-tsx/WarningBox.js';
 import { getModelCapabilities, getIsReasoningEnabledState } from '../../../../common/modelCapabilities.js';
 import { AlertTriangle, File, Ban, Check, ChevronRight, Dot, FileIcon, Pencil, Undo, Undo2, X, Flag, Copy as CopyIcon, Info, CirclePlus, Ellipsis, CircleEllipsis, Folder, ALargeSmall, TypeOutline, Text } from 'lucide-react';
 import { ChatMessage, CheckpointEntry, ImageAttachment, StagingSelectionItem, ToolMessage } from '../../../../common/chatThreadServiceTypes.js';
-import { approvalTypeOfBuiltinToolName, BuiltinToolCallParams, BuiltinToolName, BuiltinToolResultType, ToolName, LintErrorItem, ToolApprovalType, toolApprovalTypes } from '../../../../common/toolsServiceTypes.js';
+import { approvalTypeOfBuiltinToolName, BuiltinToolCallParams, BuiltinToolName, BuiltinToolResultType, ToolName, LintErrorItem, ToolApprovalType, toolApprovalTypes, TodoItem } from '../../../../common/toolsServiceTypes.js';
 import { CopyButton, EditToolAcceptRejectButtonsHTML, IconShell1, JumpToFileButton, JumpToTerminalButton, StatusIndicator, StatusIndicatorForApplyButton, useApplyStreamState, useEditToolStreamState } from '../markdown/ApplyBlockHoverButtons.js';
 import { IsRunningType } from '../../../chatThreadService.js';
 import { acceptAllBg, acceptBorder, buttonFontSize, buttonTextColor, rejectAllBg, rejectBg, rejectBorder } from '../../../../common/helpers/colors.js';
@@ -36,6 +36,16 @@ import { ToolApprovalTypeSwitch } from '../void-settings-tsx/Settings.js';
 
 import { persistentTerminalNameOfId } from '../../../terminalToolService.js';
 import { removeMCPToolNamePrefix } from '../../../../common/mcpServiceTypes.js';
+
+
+// Constants for truncating display content
+const TITLE_MAX_LENGTH = 20
+
+// Helper function to truncate text for display
+const truncateForDisplay = (text: string, maxLength: number = TITLE_MAX_LENGTH): string => {
+	if (text.length <= maxLength) return text
+	return text.substring(0, maxLength) + '...'
+}
 
 
 
@@ -789,12 +799,12 @@ const scrollToBottom = (divRef: { current: HTMLElement | null }) => {
 
 
 
-const ScrollToBottomContainer = ({ children, className, style, scrollContainerRef }: { children: React.ReactNode, className?: string, style?: React.CSSProperties, scrollContainerRef: React.MutableRefObject<HTMLDivElement | null> }) => {
+const ScrollToBottomContainer = ({ children, className, style, scrollContainerRef, onScroll: onScrollProp }: { children: React.ReactNode, className?: string, style?: React.CSSProperties, scrollContainerRef: React.MutableRefObject<HTMLDivElement | null>, onScroll?: (e: React.UIEvent<HTMLDivElement>) => void }) => {
 	const [isAtBottom, setIsAtBottom] = useState(true); // Start at bottom
 
 	const divRef = scrollContainerRef
 
-	const onScroll = () => {
+	const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
 		const div = divRef.current;
 		if (!div) return;
 
@@ -803,24 +813,29 @@ const ScrollToBottomContainer = ({ children, className, style, scrollContainerRe
 		) < 4;
 
 		setIsAtBottom(isBottom);
-	};
+
+		// 调用外部传入的 onScroll 处理函数
+		if (onScrollProp) {
+			onScrollProp(e);
+		}
+	}, [onScrollProp, divRef]);
 
 	// When children change (new messages added)
 	useEffect(() => {
 		if (isAtBottom) {
 			scrollToBottom(divRef);
 		}
-	}, [children, isAtBottom]); // Dependency on children to detect new messages
+	}, [children, isAtBottom, divRef]); // Dependency on children to detect new messages
 
 	// Initial scroll to bottom
 	useEffect(() => {
 		scrollToBottom(divRef);
-	}, []);
+	}, [divRef]);
 
 	return (
 		<div
 			ref={divRef}
-			onScroll={onScroll}
+			onScroll={handleScroll}
 			className={className}
 			style={style}
 		>
@@ -1691,7 +1706,30 @@ max-w-none
 		{children}
 	</div>
 }
-const AssistantMessageComponent = ({ chatMessage, isCheckpointGhost, isCommitted, messageIdx }: { chatMessage: ChatMessage & { role: 'assistant' }, isCheckpointGhost: boolean, messageIdx: number, isCommitted: boolean }) => {
+// Helper function to format duration in milliseconds to human-readable string
+const formatDuration = (startTime: number | null | undefined, endTime: number | null | undefined): string | null => {
+	// Return null if either value is null, undefined, or not a valid number
+	if (startTime === null || startTime === undefined || endTime === null || endTime === undefined) return null
+	if (typeof startTime !== 'number' || typeof endTime !== 'number') return null
+	if (Number.isNaN(startTime) || Number.isNaN(endTime)) return null
+
+	const durationMs = endTime - startTime
+
+	// Return null if duration is invalid (negative or NaN)
+	if (Number.isNaN(durationMs) || durationMs < 0) return null
+
+	if (durationMs < 1000) {
+		return `${durationMs}ms`
+	} else if (durationMs < 60000) {
+		return `${(durationMs / 1000).toFixed(1)}s`
+	} else {
+		const minutes = Math.floor(durationMs / 60000)
+		const seconds = Math.round((durationMs % 60000) / 1000)
+		return `${minutes}m ${seconds}s`
+	}
+}
+
+const AssistantMessageComponent = ({ chatMessage, isCheckpointGhost, isCommitted, messageIdx, assistantReplyNumber }: { chatMessage: ChatMessage & { role: 'assistant' }, isCheckpointGhost: boolean, messageIdx: number, isCommitted: boolean, assistantReplyNumber?: number }) => {
 
 	const accessor = useAccessor()
 	const chatThreadsService = accessor.get('IChatThreadService')
@@ -1700,7 +1738,6 @@ const AssistantMessageComponent = ({ chatMessage, isCheckpointGhost, isCommitted
 	const hasReasoning = !!reasoningStr
 	const isDoneReasoning = !!chatMessage.displayContent
 	const thread = chatThreadsService.getCurrentThread()
-
 
 	const chatMessageLocation: ChatMessageLocation = {
 		threadId: thread.id,
@@ -1714,7 +1751,7 @@ const AssistantMessageComponent = ({ chatMessage, isCheckpointGhost, isCommitted
 		{/* reasoning token */}
 		{hasReasoning &&
 			<div className={`${isCheckpointGhost ? 'opacity-50' : ''}`}>
-				<ReasoningWrapper isDoneReasoning={isDoneReasoning} isStreaming={!isCommitted}>
+				<ReasoningWrapper isDoneReasoning={isDoneReasoning} isStreaming={!isCommitted} reasoningStr={reasoningStr}>
 					<SmallProseWrapper>
 						<ChatMarkdownRender
 							string={reasoningStr}
@@ -1761,21 +1798,29 @@ const IconThinking = ({ className = '' }: { className?: string }) => {
 	);
 };
 
+// Maximum character length for reasoning content preview (set to 10 for testing)
+const REASONING_PREVIEW_MAX_LENGTH = 2000
+
 const ReasoningWrapper = ({
 	isDoneReasoning,
 	isStreaming,
 	children,
 	thinkingDuration,
+	reasoningStr,
 }: {
 	isDoneReasoning: boolean;
 	isStreaming: boolean;
 	children: React.ReactNode;
 	thinkingDuration?: string;
+	reasoningStr?: string;
 }) => {
 	const t = useVoidChatI18n()
 	const isDone = isDoneReasoning || !isStreaming;
 	const isWriting = !isDone;
 	const [isOpen, setIsOpen] = useState(isWriting);
+
+	// State for expanding the full content
+	const [isContentExpanded, setIsContentExpanded] = useState(false);
 
 	useEffect(() => {
 		if (!isWriting) setIsOpen(false); // if just finished reasoning, close
@@ -1785,6 +1830,10 @@ const ReasoningWrapper = ({
 	const timeDisplay = thinkingDuration ? (
 		<span className="text-[12px] ml-1 opacity-60">{thinkingDuration}</span>
 	) : null;
+
+	// Determine if content should be truncated
+	const shouldTruncate = reasoningStr && reasoningStr.length > REASONING_PREVIEW_MAX_LENGTH && !isContentExpanded
+	const truncatedStr = shouldTruncate ? reasoningStr.substring(0, REASONING_PREVIEW_MAX_LENGTH) : reasoningStr
 
 	return (
 		<div className="thought-process mb-4">
@@ -1815,7 +1864,25 @@ const ReasoningWrapper = ({
 					isOpen ? 'opacity-100 max-h-[2000px]' : 'max-h-0 opacity-0 overflow-hidden'
 				}`}
 			>
-				{children}
+				{/* Content container with max height and scroll */}
+				<div className="max-h-[300px] overflow-y-auto">
+					{shouldTruncate ? (
+						<>
+							{truncatedStr}
+							<button
+								onClick={(e) => {
+									e.stopPropagation()
+									setIsContentExpanded(true)
+								}}
+								className="ml-2 text-void-accent hover:underline text-xs cursor-pointer"
+							>
+								{t.expand()}
+							</button>
+						</>
+					) : (
+						children
+					)}
+				</div>
 			</div>
 		</div>
 	);
@@ -1848,7 +1915,10 @@ const getTitleOfBuiltinToolName = (t: ReturnType<typeof useVoidChatI18n>) => ({
 	'read_lint_errors': { done: t.lintErrors(), proposed: t.lintErrors(), running: loadingTitleWrapper(t.lintErrors()) },
 	'search_in_file': { done: t.toolSearchForFilesDone(), proposed: t.toolSearchForFilesProposed(), running: loadingTitleWrapper(t.toolSearchForFilesRunning('')) },
 	'xml_escape': { done: t.toolReadFileDone(), proposed: t.toolReadFileProposed(), running: loadingTitleWrapper(t.toolReadFileRunning('')) },
-	'ask_user_question': { done: t.toolReadFileDone(), proposed: t.toolReadFileProposed(), running: loadingTitleWrapper(t.toolReadFileRunning('')) },
+	'ask_user_question': { done: t.toolAskUserQuestionDone(), proposed: t.toolAskUserQuestionProposed(), running: loadingTitleWrapper(t.toolAskUserQuestionRunning()) },
+	'web_fetch': { done: t.toolWebFetchDone(), proposed: t.toolWebFetchProposed(), running: loadingTitleWrapper(t.toolWebFetchRunning()) },
+	'todo_write': { done: t.toolTodoWriteDone(), proposed: t.toolTodoWriteProposed(), running: loadingTitleWrapper(t.toolTodoWriteRunning()) },
+	'todo_read': { done: t.toolTodoReadDone(), proposed: t.toolTodoReadProposed(), running: loadingTitleWrapper(t.toolTodoReadRunning()) },
 }) as const;
 
 
@@ -2001,6 +2071,27 @@ const toolNameToDesc = (toolName: BuiltinToolName, _toolParams: BuiltinToolCallP
 			const toolParams = _toolParams as BuiltinToolCallParams['ask_user_question']
 			return {
 				desc1: toolParams.questions.length > 0 ? toolParams.questions[0].header : '',
+				desc1Info: undefined,
+			}
+		},
+		'web_fetch': () => {
+			const toolParams = _toolParams as BuiltinToolCallParams['web_fetch']
+			return {
+				desc1: toolParams.url,
+				desc1Info: undefined,
+			}
+		},
+		'todo_write': () => {
+			const toolParams = _toolParams as BuiltinToolCallParams['todo_write']
+			const taskCount = toolParams.todos?.length || 0
+			return {
+				desc1: `${taskCount} task${taskCount !== 1 ? 's' : ''}`,
+				desc1Info: undefined,
+			}
+		},
+		'todo_read': () => {
+			return {
+				desc1: '',
 				desc1Info: undefined,
 			}
 		}
@@ -3296,20 +3387,242 @@ const t = useVoidChatI18n()
 			return <ToolHeaderWrapper {...componentParams} />
 		},
 	},
+	'web_fetch': {
+		resultWrapper: ({ toolMessage }) => {
+			const t = useVoidChatI18n()
+			const accessor = useAccessor()
+
+			const title = getTitle(toolMessage, t)
+			const { desc1, desc1Info } = toolNameToDesc(toolMessage.name, toolMessage.params, accessor)
+			const icon = null
+
+			if (toolMessage.type === 'tool_request') return null
+			if (toolMessage.type === 'running_now') return null
+
+			const isError = false
+			const isRejected = toolMessage.type === 'rejected'
+			const { rawParams, params } = toolMessage
+			const componentParams: ToolHeaderParams = { title, desc1, desc1Info, isError, icon, isRejected, }
+
+			if (toolMessage.type === 'success') {
+				const { result } = toolMessage
+				componentParams.children = <ToolChildrenWrapper>
+					<SmallProseWrapper>
+						<ChatMarkdownRender
+							string={result.content}
+							chatMessageLocation={undefined}
+							isApplyEnabled={false}
+							isLinkDetectionEnabled={true}
+						/>
+					</SmallProseWrapper>
+				</ToolChildrenWrapper>
+			}
+			else if (toolMessage.type === 'tool_error') {
+				const { result } = toolMessage
+				componentParams.bottomChildren = <BottomChildren title={t.error()}>
+					<CodeChildren>
+						{result}
+					</CodeChildren>
+				</BottomChildren>
+			}
+
+			return <ToolHeaderWrapper {...componentParams} />
+		},
+	},
+	'todo_write': {
+		resultWrapper: ({ toolMessage }) => {
+			const t = useVoidChatI18n()
+			const title = getTitle(toolMessage, t)
+			const icon = null
+
+			if (toolMessage.type === 'tool_request') return null
+			if (toolMessage.type === 'running_now') return null
+
+			const isError = false
+			const isRejected = toolMessage.type === 'rejected'
+			const { params } = toolMessage
+			let desc1 = ''
+			let todos: TodoItem[] = []
+
+			if (toolMessage.type === 'success') {
+				const { result } = toolMessage
+				todos = result.todos
+				const completedCount = todos.filter(todo => todo.status === 'completed').length
+				desc1 = t.todoTaskStats(todos.length, completedCount)
+			}
+			const componentParams: ToolHeaderParams = { title, desc1, isError, icon, isRejected }
+
+			if (toolMessage.type === 'success') {
+				componentParams.children = <TodoListUI todos={todos} />
+			}
+			else if (toolMessage.type === 'tool_error') {
+				const { result } = toolMessage
+				componentParams.bottomChildren = <BottomChildren title={t.error()}>
+					<CodeChildren>
+						{result}
+					</CodeChildren>
+				</BottomChildren>
+			}
+
+			return <ToolHeaderWrapper {...componentParams} />
+		},
+	},
+	'todo_read': {
+		resultWrapper: ({ toolMessage }) => {
+			const t = useVoidChatI18n()
+			const title = getTitle(toolMessage, t)
+			const icon = null
+
+			if (toolMessage.type === 'tool_request') return null
+			if (toolMessage.type === 'running_now') return null
+
+			const isError = false
+			const isRejected = toolMessage.type === 'rejected'
+			let desc1 = ''
+			let todos: TodoItem[] = []
+
+			if (toolMessage.type === 'success') {
+				const { result } = toolMessage
+				todos = result.todos
+				const completedCount = todos.filter(todo => todo.status === 'completed').length
+				desc1 = t.todoTaskStats(todos.length, completedCount)
+			}
+			const componentParams: ToolHeaderParams = { title, desc1, isError, icon, isRejected }
+
+			if (toolMessage.type === 'success') {
+				componentParams.children = <TodoListUI todos={todos} />
+			}
+			else if (toolMessage.type === 'tool_error') {
+				const { result } = toolMessage
+				componentParams.bottomChildren = <BottomChildren title={t.error()}>
+					<CodeChildren>
+						{result}
+					</CodeChildren>
+				</BottomChildren>
+			}
+
+			return <ToolHeaderWrapper {...componentParams} />
+		},
+	},
 };
 
 
-const Checkpoint = ({ message, threadId, messageIdx, isCheckpointGhost, threadIsRunning }: { message: CheckpointEntry, threadId: string; messageIdx: number, isCheckpointGhost: boolean, threadIsRunning: boolean }) => {
+// Todo List UI Component
+const TodoListUI = ({ todos }: { todos: TodoItem[] }) => {
+	const t = useVoidChatI18n()
+
+	if (todos.length === 0) {
+		return (
+			<div className="text-sm text-[var(--vscode-descriptionForeground)] italic">
+				{t.todoNoTasks()}
+			</div>
+		)
+	}
+
+	const getStatusIcon = (status: TodoItem['status']) => {
+		switch (status) {
+			case 'completed':
+				return <Check size={14} className="text-green-500" />
+			case 'in_progress':
+				return <Dot size={14} className="text-blue-500 animate-pulse" />
+			case 'failed':
+				return <X size={14} className="text-red-500" />
+			default:
+				return <Dot size={14} className="text-[var(--vscode-descriptionForeground)]" />
+		}
+	}
+
+	const getStatusColor = (status: TodoItem['status']) => {
+		switch (status) {
+			case 'completed':
+				return 'text-green-500'
+			case 'in_progress':
+				return 'text-blue-500'
+			case 'failed':
+				return 'text-red-500'
+			default:
+				return 'text-[var(--vscode-foreground)]'
+		}
+	}
+
+	const getPriorityBadge = (priority?: TodoItem['priority']) => {
+		if (!priority) return null
+
+		const priorityColors = {
+			high: 'bg-red-500/20 text-red-400 border-red-500/30',
+			medium: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
+			low: 'bg-gray-500/20 text-gray-400 border-gray-500/30',
+		}
+
+		const priorityLabels = {
+			high: t.todoPriorityHigh(),
+			medium: t.todoPriorityMedium(),
+			low: t.todoPriorityLow(),
+		}
+
+		return (
+			<span className={`px-1.5 py-0.5 text-xs rounded border ${priorityColors[priority]}`}>
+				{priorityLabels[priority]}
+			</span>
+		)
+	}
+
+	return (
+		<div className="space-y-1.5 pt-1">
+			{todos.map((todo, index) => (
+				<div
+					key={todo.id || index}
+					className="flex items-start gap-2 py-1 px-2 rounded hover:bg-[var(--vscode-list-hoverBackground)] transition-colors"
+				>
+					{/* Status Icon */}
+					<div className="flex-shrink-0 mt-0.5">
+						{getStatusIcon(todo.status)}
+					</div>
+
+					{/* Task Content */}
+					<div className="flex-1 min-w-0">
+						<div className="flex items-center gap-2 flex-wrap">
+							<span className={`text-sm ${getStatusColor(todo.status)} ${todo.status === 'completed' ? 'line-through opacity-70' : ''}`}>
+								{todo.task}
+							</span>
+							{getPriorityBadge(todo.priority)}
+						</div>
+					</div>
+				</div>
+			))}
+		</div>
+	)
+};
+
+
+const Checkpoint = ({ message, threadId, messageIdx, isCheckpointGhost, threadIsRunning, currCheckpointIdx, isLastCheckpoint }: { message: CheckpointEntry, threadId: string; messageIdx: number, isCheckpointGhost: boolean, threadIsRunning: boolean, currCheckpointIdx: number | undefined, isLastCheckpoint: boolean }) => {
 	const t = useVoidChatI18n()
 	const accessor = useAccessor()
 	const chatThreadService = accessor.get('IChatThreadService')
-	const streamState = useFullChatThreadsStreamState()
 
 	const isRunning = useChatThreadsStreamState(threadId)?.isRunning
-	const isDisabled = useMemo(() => {
-		if (isRunning) return true
-		return !!Object.keys(streamState).find((threadId2) => streamState[threadId2]?.isRunning)
-	}, [isRunning, streamState])
+	// Checkpoint is only disabled when current thread is running
+	const isDisabled = !!isRunning
+
+	// Check if this checkpoint is currently selected
+	// For the last checkpoint: it's selected when currCheckpointIdx is null/undefined (meaning we're at latest)
+	// For other checkpoints: it's selected when currCheckpointIdx equals messageIdx
+	const isSelected = isLastCheckpoint
+		? currCheckpointIdx === null || currCheckpointIdx === undefined
+		: currCheckpointIdx === messageIdx
+
+	// Determine status text
+	const getStatusText = () => {
+		if (isDisabled) {
+			return t.disabledWhileRunning()
+		}
+		if (isLastCheckpoint) {
+			// Last checkpoint: show "(Latest)" when at latest, "(Click to cancel)" when another checkpoint is selected
+			return isSelected ? t.checkpointLatest() : t.checkpointCancel()
+		}
+		// Other checkpoints: show "(Disabled)" when selected, "(Click to disable)" when not selected
+		return isSelected ? t.checkpointClickToCancel() : t.checkpointClickToJump()
+	}
 
 	return <div
 		className={`flex items-center justify-center px-2 `}
@@ -3317,28 +3630,42 @@ const Checkpoint = ({ message, threadId, messageIdx, isCheckpointGhost, threadIs
 		<div
 			className={`
                     text-xs
-                    text-void-fg-3
                     select-none
                     ${isCheckpointGhost ? 'opacity-50' : 'opacity-100'}
-					${isDisabled ? 'cursor-default' : 'cursor-pointer'}
+					${isDisabled ? 'cursor-default text-void-fg-3' : 'cursor-pointer text-void-fg-2'}
+					${isSelected && !isLastCheckpoint ? 'font-semibold text-void-accent' : ''}
                 `}
 			style={{ position: 'relative', display: 'inline-block' }} // allow absolute icon
 			onClick={() => {
 				if (threadIsRunning) return
 				if (isDisabled) return
-				chatThreadService.jumpToCheckpointBeforeMessageIdx({
-					threadId,
-					messageIdx,
-					jumpToUserModified: messageIdx === (chatThreadService.state.allThreads[threadId]?.messages.length ?? 0) - 1
-				})
+
+				// For the last checkpoint: clicking it should reset currCheckpointIdx to null (latest state)
+				if (isLastCheckpoint) {
+					// Reset to latest state by setting currCheckpointIdx to null
+					chatThreadService.setCurrentThreadState({ currCheckpointIdx: null })
+					return
+				}
+
+				// For other checkpoints: toggle selection
+				if (isSelected) {
+					// Already selected, jump to last checkpoint (reset to latest)
+					chatThreadService.setCurrentThreadState({ currCheckpointIdx: null })
+				} else {
+					// Jump to this checkpoint
+					chatThreadService.jumpToCheckpointBeforeMessageIdx({
+						threadId,
+						messageIdx,
+						jumpToUserModified: false
+					})
+				}
 			}}
-			{...isDisabled ? {
-				'data-tooltip-id': 'void-tooltip',
-				'data-tooltip-content': isRunning ? t.disabledWhileRunning() : t.disabledBecauseAnotherRunning(),
-				'data-tooltip-place': 'top',
-			} : {}}
 		>
+			{isSelected && !isLastCheckpoint ? <Flag className='inline-block mr-1 h-3 w-3' /> : null}
 			{t.checkpoint()}
+			<span className='ml-1 text-void-fg-4 opacity-70'>
+				{getStatusText()}
+			</span>
 		</div>
 	</div>
 }
@@ -3353,6 +3680,9 @@ type ChatBubbleProps = {
 	threadId: string,
 	currCheckpointIdx: number | undefined,
 	_scrollToBottom: (() => void) | null,
+	totalMessages: number,
+	assistantReplyNumber?: number,
+	userReplyNumber?: number,
 }
 
 const ChatBubble = (props: ChatBubbleProps) => {
@@ -3361,7 +3691,63 @@ const ChatBubble = (props: ChatBubbleProps) => {
 	</ErrorBoundary>
 }
 
-const _ChatBubble = ({ threadId, chatMessage, currCheckpointIdx, isCommitted, messageIdx, chatIsRunning, _scrollToBottom }: ChatBubbleProps) => {
+// 优化的 ChatBubbleMemo - 使用 React.memo 减少不必要的重渲染
+const areChatBubblePropsEqual = (
+	prevProps: ChatBubbleProps,
+	nextProps: ChatBubbleProps
+): boolean => {
+	// 引用相等，无需重渲染
+	if (prevProps.chatMessage === nextProps.chatMessage) {
+		return true
+	}
+
+	// 检查关键属性
+	const prevMsg = prevProps.chatMessage
+	const nextMsg = nextProps.chatMessage
+
+	// 基本属性比较
+	if (
+		prevProps.messageIdx !== nextProps.messageIdx ||
+		prevProps.isCommitted !== nextProps.isCommitted ||
+		prevProps.threadId !== nextProps.threadId ||
+		prevProps.currCheckpointIdx !== nextProps.currCheckpointIdx ||
+		prevProps.totalMessages !== nextProps.totalMessages ||
+		prevProps.assistantReplyNumber !== nextProps.assistantReplyNumber ||
+		prevProps.userReplyNumber !== nextProps.userReplyNumber
+	) {
+		return false
+	}
+
+	// isCheckpointGhost 计算逻辑
+	const prevIsCheckpointGhost = prevProps.messageIdx > (prevProps.currCheckpointIdx ?? Infinity) && !prevProps.chatIsRunning
+	const nextIsCheckpointGhost = nextProps.messageIdx > (nextProps.currCheckpointIdx ?? Infinity) && !nextProps.chatIsRunning
+	if (prevIsCheckpointGhost !== nextIsCheckpointGhost) {
+		return false
+	}
+
+	// 角色比较
+	if (prevMsg.role !== nextMsg.role) {
+		return false
+	}
+
+	// 对于不同角色，比较关键内容
+	if (prevMsg.role === 'user' && nextMsg.role === 'user') {
+		return prevMsg.displayContent === nextMsg.displayContent &&
+			prevMsg.state?.isBeingEdited === nextMsg.state?.isBeingEdited
+	}
+
+	if (prevMsg.role === 'assistant' && nextMsg.role === 'assistant') {
+		return prevMsg.displayContent === nextMsg.displayContent &&
+			prevMsg.reasoning === nextMsg.reasoning
+	}
+
+	// 对于其他角色，进行浅比较
+	return prevProps.chatIsRunning === nextProps.chatIsRunning
+}
+
+const ChatBubbleMemo = React.memo(ChatBubble, areChatBubblePropsEqual)
+
+const _ChatBubble = ({ threadId, chatMessage, currCheckpointIdx, isCommitted, messageIdx, chatIsRunning, _scrollToBottom, totalMessages, assistantReplyNumber, userReplyNumber }: ChatBubbleProps) => {
 	const t = useVoidChatI18n()
 	const role = chatMessage.role
 	const settingsState = useSettingsState()
@@ -3370,7 +3756,20 @@ const _ChatBubble = ({ threadId, chatMessage, currCheckpointIdx, isCommitted, me
 	const isCheckpointGhost = messageIdx > (currCheckpointIdx ?? Infinity) && !chatIsRunning // whether to show as gray (if chat is running, for good measure just dont show any ghosts)
 
 	const [isJsonOpen, setIsJsonOpen] = useState(false)
-	const chatMessageJson = useMemo(() => JSON.stringify(chatMessage, null, 2), [chatMessage])
+
+	// Lazily compute JSON string only when needed (showJsonDebug is true and JSON section is visible)
+	const chatMessageJsonRef = useRef<string | null>(null)
+	const getChatMessageJson = useCallback(() => {
+		if (chatMessageJsonRef.current === null) {
+			chatMessageJsonRef.current = JSON.stringify(chatMessage, null, 2)
+		}
+		return chatMessageJsonRef.current
+	}, [chatMessage])
+
+	// Get displayContent for copying
+	const displayContentForCopy = useMemo(() => {
+		return (chatMessage as any).displayContent || ''
+	}, [chatMessage])
 
 	// Try to parse systemContent as JSON for better display
 	const parsedSystemContent = useMemo(() => {
@@ -3386,18 +3785,28 @@ const _ChatBubble = ({ threadId, chatMessage, currCheckpointIdx, isCommitted, me
 		}
 	}, [role, chatMessage])
 
-	// For system messages, use parsed JSON for copy if available
-	const systemJsonForCopy = useMemo(() => {
-		if (role !== 'system') return null
-		const msg = chatMessage as any
-		const systemContent = msg?.systemContent
-		if (!systemContent) return null
-		try {
-			const parsed = JSON.parse(systemContent)
-			return JSON.stringify(parsed, null, 2)
-		} catch {
-			return JSON.stringify(chatMessage, null, 2)
+	// Lazily compute system JSON for copy only when needed
+	const systemJsonForCopyRef = useRef<string | null>(null)
+	const getSystemJsonForCopy = useCallback(() => {
+		if (systemJsonForCopyRef.current === null) {
+			if (role !== 'system') {
+				systemJsonForCopyRef.current = ''
+			} else {
+				const msg = chatMessage as any
+				const systemContent = msg?.systemContent
+				if (!systemContent) {
+					systemJsonForCopyRef.current = ''
+				} else {
+					try {
+						const parsed = JSON.parse(systemContent)
+						systemJsonForCopyRef.current = JSON.stringify(parsed, null, 2)
+					} catch {
+						systemJsonForCopyRef.current = JSON.stringify(chatMessage, null, 2)
+					}
+				}
+			}
 		}
+		return systemJsonForCopyRef.current
 	}, [role, chatMessage])
 
 	let messageContent: React.ReactNode
@@ -3416,6 +3825,7 @@ const _ChatBubble = ({ threadId, chatMessage, currCheckpointIdx, isCommitted, me
 			isCheckpointGhost={isCheckpointGhost}
 			messageIdx={messageIdx}
 			isCommitted={isCommitted}
+			assistantReplyNumber={assistantReplyNumber}
 		/>
 	}
 	else if (role === 'tool') {
@@ -3455,12 +3865,16 @@ const _ChatBubble = ({ threadId, chatMessage, currCheckpointIdx, isCommitted, me
 		</div>
 	}
 	else if (role === 'checkpoint') {
+		// Check if this is the last checkpoint in the messages
+		const isLastCheckpoint = messageIdx === totalMessages - 1
 		messageContent = <Checkpoint
 			threadId={threadId}
 			message={chatMessage}
 			messageIdx={messageIdx}
 			isCheckpointGhost={isCheckpointGhost}
 			threadIsRunning={!!chatIsRunning}
+			currCheckpointIdx={currCheckpointIdx}
+			isLastCheckpoint={isLastCheckpoint}
 		/>
 	}
 	else if (role === 'system') {
@@ -3478,23 +3892,53 @@ const _ChatBubble = ({ threadId, chatMessage, currCheckpointIdx, isCommitted, me
 		messageContent = null
 	}
 
+	// Checkpoint messages have their own special styling, don't show the footer
+	if (role === 'checkpoint') {
+		return <div className={`border border-void-border-1 rounded-md p-2 mb-2 ${isCheckpointGhost ? 'opacity-50' : ''}`}>
+			{messageContent}
+		</div>
+	}
+
 	return <div className={`border border-void-border-1 rounded-md p-2 mb-2 ${isCheckpointGhost ? 'opacity-50' : ''}`}>
 		{messageContent}
-		{/* JSON collapsible section */}
-		{showJsonDebug && <div className='mt-2 border-t border-void-border-1 pt-2'>
+		{/* Model and message type info - always visible */}
+		<div className='mt-2 border-t border-void-border-1 pt-2'>
 			<div className='flex items-center justify-between'>
-				<button
-					onClick={() => setIsJsonOpen(v => !v)}
-					className='flex items-center gap-1 text-void-fg-3 hover:text-void-fg-1 text-xs cursor-pointer'
-				>
-					<ChevronRight className={`h-3 w-3 transition-transform duration-100 ${isJsonOpen ? 'rotate-90' : ''}`} />
-					<span>JSON</span>
-					<span className="ml-2 text-void-fg-4 opacity-60">{chatMessage.role}{(chatMessage as any).modelName ? ` · ${(chatMessage as any).modelName}` : ''}</span>
-				</button>
-				<CopyButton codeStr={role === 'system' ? (systemJsonForCopy || chatMessageJson) : chatMessageJson} toolTipName={t.copyJson()} />
+				<div className='flex items-center gap-1'>
+					{displayContentForCopy && <CopyButton codeStr={displayContentForCopy} toolTipName={t.copy()} />}
+					<span className="text-void-fg-4 text-xs opacity-60">{chatMessage.role}{(chatMessage as any).modelName ? ` · ${(chatMessage as any).modelName}` : ''}</span>
+					{role === 'user' && userReplyNumber && (
+						<span className="text-void-fg-4 text-xs opacity-60"> · {t.userReply(userReplyNumber)}</span>
+					)}
+					{role === 'assistant' && assistantReplyNumber && (
+						<span className="text-void-fg-4 text-xs opacity-60"> · {t.assistantReply(assistantReplyNumber)}</span>
+					)}
+				</div>
 			</div>
-			{isJsonOpen && <pre className='mt-1 p-2 bg-void-bg-2 rounded text-void-fg-3 text-xs overflow-auto max-h-48 whitespace-pre-wrap'>{role === 'system' ? (systemJsonForCopy || chatMessageJson) : chatMessageJson}</pre>}
-		</div>}
+		</div>
+		{/* JSON collapsible section */}
+		{showJsonDebug && <>
+			<hr className='my-2 border-t border-void-border-1' />
+			<div className='pt-1'>
+				<div className='flex items-center justify-between'>
+					<div className='flex items-center gap-2'>
+						<button
+							onClick={() => setIsJsonOpen(v => !v)}
+							className='flex items-center gap-1 text-void-fg-3 hover:text-void-fg-1 text-xs cursor-pointer'
+						>
+							<ChevronRight className={`h-3 w-3 transition-transform duration-100 ${isJsonOpen ? 'rotate-90' : ''}`} />
+							<span>JSON</span>
+						</button>
+						{role === 'assistant' && isCommitted && (() => {
+							const duration = formatDuration((chatMessage as any).startTime, (chatMessage as any).endTime)
+							return duration && <span className='text-void-fg-4 text-xs'>{t.llmRequestDuration()}: {duration}</span>
+						})()}
+					</div>
+				<CopyButton codeStr={role === 'system' ? (getSystemJsonForCopy() || getChatMessageJson()) : getChatMessageJson()} toolTipName={t.copyJson()} />
+				</div>
+				{isJsonOpen && <pre className='mt-1 p-2 bg-void-bg-2 rounded text-void-fg-3 text-xs overflow-auto max-h-48 whitespace-pre-wrap'>{role === 'system' ? (getSystemJsonForCopy() || getChatMessageJson()) : getChatMessageJson()}</pre>}
+			</div>
+		</>}
 	</div>
 
 }
@@ -3856,6 +4300,18 @@ export const SidebarChat = () => {
 
 	const sidebarRef = useRef<HTMLDivElement>(null)
 	const scrollContainerRef = useRef<HTMLDivElement | null>(null)
+
+	// ======== 渐进式渲染状态 ========
+	// 初始渲染的消息数量（从末尾开始）
+	const INITIAL_RENDER_COUNT = 30
+	// 每次加载更多的数量
+	const LOAD_MORE_COUNT = 30
+	// 可见消息数量状态
+	const [visibleCount, setVisibleCount] = useState(INITIAL_RENDER_COUNT)
+	// 是否正在加载更多消息
+	const [isLoadingMore, setIsLoadingMore] = useState(false)
+	// 上一次的线程ID，用于检测线程切换
+	const prevThreadIdRef = useRef<string | null>(null)
 	const onSubmit = useCallback(async (_forceSubmit?: string) => {
 
 		if (isDisabled && !_forceSubmit) return
@@ -3869,6 +4325,28 @@ export const SidebarChat = () => {
 		// Get current images before clearing
 		const currentImages = images
 
+		// Calculate title before sending message
+		// If this is the first user message, use it as title
+		// If there are existing messages, use the first user message as title
+		const currentMessages = currentThread?.messages ?? []
+		const firstUserMsgIdx = currentMessages.findIndex(msg => msg.role === 'user')
+		let title: string
+		if (firstUserMsgIdx !== -1) {
+			// Existing user message - use it as title (truncated)
+			const firstUserMsg = currentMessages[firstUserMsgIdx]
+			if (firstUserMsg.role === 'user' && firstUserMsg.displayContent) {
+				title = truncateForDisplay(firstUserMsg.displayContent)
+			} else {
+				title = t.chatTitle()
+			}
+		} else {
+			// This is the first message - use the current message as title
+			title = truncateForDisplay(userMessage)
+		}
+
+		// Notify sidebar pane to update title immediately
+		chatThreadsService.notifyThreadTitleChanged(threadId, title)
+
 		try {
 			await chatThreadsService.addUserMessageAndStreamResponse({ userMessage, _chatImages: currentImages, threadId })
 		} catch (e) {
@@ -3880,18 +4358,115 @@ export const SidebarChat = () => {
 		textAreaFnsRef.current?.setValue('')
 		textAreaRef.current?.focus() // focus input after submit
 
-	}, [chatThreadsService, isDisabled, isRunning, textAreaRef, textAreaFnsRef, setSelections, setImages, images, settingsState])
+	}, [chatThreadsService, isDisabled, isRunning, textAreaRef, textAreaFnsRef, setSelections, setImages, images, settingsState, currentThread, t])
 
 	const onAbort = async () => {
 		const threadId = currentThread.id
 		await chatThreadsService.abortRunning(threadId)
 	}
 
+	// Update title when thread changes (switch thread or initial load)
+	useEffect(() => {
+		const threadId = chatThreadsService.state.currentThreadId
+		const thread = chatThreadsService.state.allThreads[threadId]
+		const messages = thread?.messages ?? []
+
+		// Find first user message
+		const firstUserMsgIdx = messages.findIndex(msg => msg.role === 'user')
+		let title: string
+
+		if (firstUserMsgIdx !== -1) {
+			const firstUserMsg = messages[firstUserMsgIdx]
+			if (firstUserMsg.role === 'user' && firstUserMsg.displayContent) {
+				title = truncateForDisplay(firstUserMsg.displayContent)
+			} else {
+				title = t.chatTitle()
+			}
+		} else {
+			title = t.chatTitle()
+		}
+
+		chatThreadsService.notifyThreadTitleChanged(threadId, title)
+	}, [chatThreadsState.currentThreadId, chatThreadsService, t])
+
 	const keybindingString = accessor.get('IKeybindingService').lookupKeybinding(VOID_CTRL_L_ACTION_ID)?.getLabel()
 
 	const threadId = currentThread.id
 	const currCheckpointIdx = chatThreadsState.allThreads[threadId]?.state?.currCheckpointIdx ?? undefined  // if not exist, treat like checkpoint is last message (infinity)
 
+	// ======== 渐进式渲染：线程切换时重置可见消息数量 ========
+	useEffect(() => {
+		// 检测线程切换
+		if (prevThreadIdRef.current !== threadId) {
+			prevThreadIdRef.current = threadId
+			// 重置为初始渲染数量
+			setVisibleCount(INITIAL_RENDER_COUNT)
+			setIsLoadingMore(false)
+		}
+	}, [threadId, INITIAL_RENDER_COUNT])
+
+	// ======== 渐进式渲染：计算可见消息范围 ========
+	const totalMessagesCount = previousMessages.length
+	const hasMoreMessages = totalMessagesCount > visibleCount
+
+	// 从末尾开始计算可见消息的起始索引
+	const visibleStartIdx = Math.max(0, totalMessagesCount - visibleCount)
+	const visibleMessages = useMemo(() => {
+		return previousMessages.slice(visibleStartIdx)
+	}, [previousMessages, visibleStartIdx])
+
+	// 计算隐藏的消息数量（用于显示"加载更多"提示）
+	const hiddenMessagesCount = visibleStartIdx
+
+	// 加载更多消息的函数
+	const loadMoreMessages = useCallback(() => {
+		if (isLoadingMore || !hasMoreMessages) return
+		setIsLoadingMore(true)
+		// 使用 requestAnimationFrame 避免阻塞 UI
+		requestAnimationFrame(() => {
+			// 使用函数式更新，获取最新的 totalMessagesCount
+			setVisibleCount(prev => {
+				// 重新计算最新的 totalMessagesCount
+				const latestTotal = previousMessages.length
+				return Math.min(prev + LOAD_MORE_COUNT, latestTotal)
+			})
+			setIsLoadingMore(false)
+		})
+	}, [isLoadingMore, hasMoreMessages, previousMessages.length])
+
+	// 滚动监听：当滚动到顶部时自动加载更多
+	const handleScrollForLoadMore = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+		const target = e.target as HTMLDivElement
+		const { scrollTop } = target
+		// 当滚动到顶部附近（距离顶部 200px 以内）时加载更多
+		if (scrollTop < 200 && hasMoreMessages && !isLoadingMore) {
+			loadMoreMessages()
+		}
+	}, [hasMoreMessages, isLoadingMore, loadMoreMessages])
+
+	// 预热 Markdown 缓存 - 在线程切换时提前解析消息内容
+	useEffect(() => {
+		if (!previousMessages.length) return
+
+		// 提取所有需要解析的 displayContent
+		const contentsToPrefetch: string[] = []
+		for (const msg of previousMessages) {
+			if (msg.role === 'user' && msg.displayContent) {
+				contentsToPrefetch.push(msg.displayContent)
+			} else if (msg.role === 'assistant' && msg.displayContent) {
+				contentsToPrefetch.push(msg.displayContent)
+				// reasoning 内容也需要解析（如果有的话）
+				if (msg.reasoning) {
+					contentsToPrefetch.push(msg.reasoning)
+				}
+			}
+		}
+
+		// 低优先级预加载（不阻塞渲染）
+		if (contentsToPrefetch.length > 0) {
+			prefetchTokensBatch(contentsToPrefetch, false)
+		}
+	}, [threadId, previousMessages])
 
 
 	// resolve mount info
@@ -3908,26 +4483,62 @@ export const SidebarChat = () => {
 
 
 
+	// ======== 渐进式渲染：计算可见消息的 assistantReplyNumber 和 userReplyNumber ========
+	// 需要基于完整消息列表计算编号，但只渲染可见部分
+	const messageNumbers = useMemo(() => {
+		let assistantCount = 0
+		let userCount = 0
+		const numbers: { assistantReplyNumber?: number, userReplyNumber?: number }[] = []
+
+		// 先遍历所有消息计算完整的计数
+		for (let i = 0; i < previousMessages.length; i++) {
+			const message = previousMessages[i]
+			let assistantReplyNumber: number | undefined = undefined
+			let userReplyNumber: number | undefined = undefined
+
+			if (message.role === 'assistant') {
+				assistantCount++
+				assistantReplyNumber = assistantCount
+			}
+			if (message.role === 'user') {
+				userCount++
+				userReplyNumber = userCount
+			}
+			numbers.push({ assistantReplyNumber, userReplyNumber })
+		}
+		return numbers
+	}, [previousMessages])
+
 	const previousMessagesHTML = useMemo(() => {
-		// const lastMessageIdx = previousMessages.findLastIndex(v => v.role !== 'checkpoint')
-		// tool request shows up as Editing... if in progress
-		return previousMessages.map((message, i) => {
-			return <ChatBubble
-				key={i}
+		// 使用渐进式渲染：只渲染 visibleMessages（从末尾开始的消息）
+		return visibleMessages.map((message, i) => {
+			// 计算实际的消息索引（基于完整消息列表）
+			const actualIdx = visibleStartIdx + i
+			const { assistantReplyNumber, userReplyNumber } = messageNumbers[actualIdx] || {}
+
+			// 使用 ChatBubbleMemo 优化性能
+			return <ChatBubbleMemo
+				key={`${threadId}-${actualIdx}-${message.role}`}
 				currCheckpointIdx={currCheckpointIdx}
 				chatMessage={message}
-				messageIdx={i}
+				messageIdx={actualIdx}
 				isCommitted={true}
 				chatIsRunning={isRunning}
 				threadId={threadId}
 				_scrollToBottom={() => scrollToBottom(scrollContainerRef)}
+				totalMessages={totalMessagesCount}
+				assistantReplyNumber={assistantReplyNumber}
+				userReplyNumber={userReplyNumber}
 			/>
 		})
-	}, [previousMessages, threadId, currCheckpointIdx, isRunning])
+	}, [visibleMessages, visibleStartIdx, messageNumbers, threadId, currCheckpointIdx, isRunning, scrollContainerRef, totalMessagesCount])
 
-	const streamingChatIdx = previousMessagesHTML.length
+	// streamingChatIdx 应该基于完整的消息数量
+	const streamingChatIdx = totalMessagesCount
+	// Calculate the assistant reply number for streaming message（基于完整消息列表）
+	const previousAssistantCount = previousMessages.filter(m => m.role === 'assistant').length
 	const currStreamingMessageHTML = reasoningSoFar || displayContentSoFar || isRunning ?
-		<ChatBubble
+		<ChatBubbleMemo
 			key={'curr-streaming-msg'}
 			currCheckpointIdx={currCheckpointIdx}
 			chatMessage={{
@@ -3938,6 +4549,8 @@ export const SidebarChat = () => {
 				toolCalls: null,
 				rawLLMContent: null,
 				modelName: null,
+				startTime: null,
+				endTime: null,
 			}}
 			messageIdx={streamingChatIdx}
 			isCommitted={false}
@@ -3945,6 +4558,8 @@ export const SidebarChat = () => {
 
 			threadId={threadId}
 			_scrollToBottom={null}
+			totalMessages={totalMessagesCount + 1}
+			assistantReplyNumber={previousAssistantCount + 1}
 		/> : null
 
 
@@ -3968,7 +4583,30 @@ export const SidebarChat = () => {
 			overflow-y-auto
 			${previousMessagesHTML.length === 0 && !displayContentSoFar ? 'hidden' : ''}
 		`}
+		onScroll={handleScrollForLoadMore}
 	>
+		{/* 渐进式渲染：加载更多按钮 */}
+		{hasMoreMessages && (
+			<div className="flex justify-center py-1">
+				<button
+					type="button"
+					onClick={loadMoreMessages}
+					disabled={isLoadingMore}
+					className={`
+						px-2 py-1 text-xs rounded
+						bg-void-bg-2 text-void-fg-3
+						hover:bg-void-bg-1 transition-colors
+						${isLoadingMore ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
+					`}
+				>
+					{isLoadingMore
+						? t.loading() || 'Loading...'
+						: t.loadMoreMessages(hiddenMessagesCount) || `Load ${hiddenMessagesCount} more messages`
+					}
+				</button>
+			</div>
+		)}
+
 		{/* previous messages */}
 		{previousMessagesHTML}
 		{currStreamingMessageHTML}

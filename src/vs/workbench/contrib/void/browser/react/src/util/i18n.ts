@@ -5,6 +5,7 @@
 
 import * as nls from '../../../../../../../nls.js'
 import { getNLSLanguage } from '../../../../../../../nls.js'
+import { DefaultLang } from '../../../../common/voidSettingsTypes.js'
 
 /**
  * 使用 VS Code NLS 系统的国际化实现
@@ -20,15 +21,34 @@ const localize = nls.localize
  * - 'auto': 根据 VS Code NLS 语言自动选择（中文用中文默认，其他用英文默认）
  * - 'en': 强制使用英文默认值
  * - 'zh': 强制使用中文默认值
+ *
+ * 此值仅在初始化时从设置中读取一次，修改设置后需要重启生效
  */
-export const DEFAULT_LANG: 'auto' | 'en' | 'zh' = 'auto'
+let _DEFAULT_LANG: DefaultLang = 'auto'
+
+/**
+ * 初始化默认语言设置（从设置服务读取）
+ * 此函数应在服务初始化后调用一次
+ */
+export const initDefaultLang = (lang: DefaultLang) => {
+	console.log('[i18n] initDefaultLang called with:', lang)
+	_DEFAULT_LANG = lang
+	console.log('[i18n] _DEFAULT_LANG set to:', _DEFAULT_LANG)
+}
+
+/**
+ * 获取当前的默认语言设置
+ */
+export const getDEFAULT_LANG = (): DefaultLang => {
+	return _DEFAULT_LANG
+}
 
 /**
  * 根据当前设置解析实际使用的语言
  */
 function resolveLang(): 'en' | 'zh' {
-	if (DEFAULT_LANG !== 'auto') {
-		return DEFAULT_LANG
+	if (_DEFAULT_LANG !== 'auto') {
+		return _DEFAULT_LANG
 	}
 	// auto 模式：根据 VS Code NLS 语言选择
 	const nlsLanguage = getNLSLanguage()
@@ -43,12 +63,16 @@ function resolveLang(): 'en' | 'zh' {
 /**
  * 所有语言的默认消息
  */
-const defaultMessages = {
+	const defaultMessages = {
 	en: {
+		// 侧边栏标题
+		chatTitle: 'Chat',
+
 		// 思考/推理相关
 		reasoning: 'Thinking',
 		reasoningDisabled: 'Reasoning disabled',
 		deepThinking: 'Deep thinking',
+		expand: 'Expand',
 
 		// 聊天模式相关
 		chatModeNormal: 'Normal conversation',
@@ -89,6 +113,16 @@ const defaultMessages = {
 		toolEditFileDone: 'File edited',
 		toolRewriteFileDone: 'File rewritten',
 		toolRunCommandDone: 'Command executed',
+
+		// 工具状态 - web_fetch
+		toolWebFetchDone: 'Web page fetched',
+		toolWebFetchProposed: 'Fetch web page',
+		toolWebFetchRunning: 'Fetching web page',
+
+		// 工具状态 - ask_user_question
+		toolAskUserQuestionDone: 'Question answered',
+		toolAskUserQuestionProposed: 'Ask question',
+		toolAskUserQuestionRunning: 'Waiting for answer',
 
 		// 工具状态 - 提议状态
 		toolReadFileProposed: 'Read file',
@@ -143,8 +177,12 @@ const defaultMessages = {
 		escapedResult: 'Escaped result',
 		escapeSuccess: 'Successfully escaped {0} characters. Original length: {1}, Escaped length: {2}',
 		userAnswered: 'User has answered',
-		disabledWhileRunning: 'Disabled while running',
+		disabledWhileRunning: 'Disabled while running (no operations allowed)',
 		checkpoint: 'Checkpoint',
+		checkpointClickToJump: '(Click to disable)',
+		checkpointClickToCancel: '(Disabled)',
+		checkpointLatest: '(Latest)',
+		checkpointCancel: '(Click to cancel)',
 		system: 'System',
 		noFilesChanged: 'No files changed',
 		filesChanged: '{0} files changed',
@@ -155,6 +193,27 @@ const defaultMessages = {
 		changesInFile: '{0} changes',
 		fullError: 'Full Error',
 		disabledBecauseAnotherRunning: 'Disabled because another thread is running',
+
+		// Todo 工具状态
+		toolTodoWriteDone: 'Todo list updated',
+		toolTodoWriteProposed: 'Update todo list',
+		toolTodoWriteRunning: 'Updating todo list',
+		toolTodoReadDone: 'Todo list read',
+		toolTodoReadProposed: 'Read todo list',
+		toolTodoReadRunning: 'Reading todo list',
+
+		// Todo 界面
+		todoList: 'Todo List',
+		todoPending: 'Pending',
+		todoInProgress: 'In Progress',
+		todoCompleted: 'Completed',
+		todoFailed: 'Failed',
+		todoPriorityHigh: 'High',
+		todoPriorityMedium: 'Medium',
+		todoPriorityLow: 'Low',
+		todoNoTasks: 'No tasks',
+		todoTaskCount: '{0} tasks',
+		todoTaskStats: '{0} tasks, {1} completed',
 
 		// 生成相关
 		generating: 'Generating',
@@ -350,12 +409,35 @@ const defaultMessages = {
 		// Developer Mode
 		developerMode: 'Developer Mode',
 		developerModeDesc: 'Developer tools for debugging and troubleshooting.',
+
+		// Default Language
+		defaultLanguageDesc: 'CoderChat interface language. Changes require restart.',
+		defaultLanguageAuto: 'Auto (follow system)',
+		defaultLanguageEn: 'English',
+		defaultLanguageZh: 'Chinese',
+
+		// Assistant reply count
+		assistantReply: 'Reply #{0}',
+
+		// User message count
+		userReply: 'Message #{0}',
+
+		// LLM request duration
+		llmRequestDuration: 'Response time',
+
+		// 渐进式渲染
+		loading: 'Loading...',
+		loadMoreMessages: 'Load {0} more messages',
 	},
 	zh: {
+		// 侧边栏标题
+		chatTitle: '聊天',
+
 		// 思考/推理相关
 		reasoning: '思考中',
 		reasoningDisabled: '推理已禁用',
 		deepThinking: '深度思考',
+		expand: '展开',
 
 		// 聊天模式相关
 		chatModeNormal: '普通对话',
@@ -378,7 +460,7 @@ const defaultMessages = {
 		resultsCount: '{0}{1} 个结果',
 
 		// 错误相关
-		lintErrors: '代码检查错误',
+		lintErrors: '检查lint错误',
 		error: '错误',
 		lineRange: '第 {0}-{1} 行',
 
@@ -396,6 +478,16 @@ const defaultMessages = {
 		toolEditFileDone: '文件已编辑',
 		toolRewriteFileDone: '文件已重写',
 		toolRunCommandDone: '命令已执行',
+
+		// 工具状态 - web_fetch
+		toolWebFetchDone: '网页已获取',
+		toolWebFetchProposed: '获取网页',
+		toolWebFetchRunning: '正在获取网页',
+
+		// 工具状态 - ask_user_question
+		toolAskUserQuestionDone: '问题已回答',
+		toolAskUserQuestionProposed: '提问',
+		toolAskUserQuestionRunning: '等待回答',
 
 		// 工具状态 - 提议状态
 		toolReadFileProposed: '读取文件',
@@ -445,13 +537,17 @@ const defaultMessages = {
 		completed: '已完成',
 		awaitingApproval: '等待批准',
 		useRegexSearch: '使用正则表达式搜索',
-		noLintErrors: '未发现代码检查错误',
+		noLintErrors: '未发现lint错误',
 		runningIn: '在 {0} 中运行',
 		escapedResult: '已转义结果',
 		escapeSuccess: '成功转义 {0} 个字符。原始长度: {1}, 转义后长度: {2}',
 		userAnswered: '用户已回答',
-		disabledWhileRunning: '运行时禁用',
+		disabledWhileRunning: '运行时禁止操作',
 		checkpoint: '检查点',
+		checkpointClickToJump: '(点击禁用)',
+		checkpointClickToCancel: '(已禁用)',
+		checkpointLatest: '(最新)',
+		checkpointCancel: '(点击取消)',
 		system: '系统',
 		noFilesChanged: '无文件变更',
 		filesChanged: '{0} 个文件已变更',
@@ -462,6 +558,27 @@ const defaultMessages = {
 		changesInFile: '{0} 处变更',
 		fullError: '完整错误',
 		disabledBecauseAnotherRunning: '因其他线程运行中而禁用',
+
+		// Todo 工具状态
+		toolTodoWriteDone: '待办列表已更新',
+		toolTodoWriteProposed: '更新待办列表',
+		toolTodoWriteRunning: '正在更新待办列表',
+		toolTodoReadDone: '待办列表已读取',
+		toolTodoReadProposed: '读取待办列表',
+		toolTodoReadRunning: '正在读取待办列表',
+
+		// Todo 界面
+		todoList: '待办列表',
+		todoPending: '待处理',
+		todoInProgress: '进行中',
+		todoCompleted: '已完成',
+		todoFailed: '已失败',
+		todoPriorityHigh: '高',
+		todoPriorityMedium: '中',
+		todoPriorityLow: '低',
+		todoNoTasks: '暂无任务',
+		todoTaskCount: '{0} 个任务',
+		todoTaskStats: '{0} 个任务，已完成 {1} 个',
 
 		// 生成相关
 		generating: '生成中',
@@ -611,7 +728,7 @@ const defaultMessages = {
 		sameAsChatModel: '与聊天模型相同',
 		differentModel: '不同模型',
 		autoAcceptLLMChanges: '自动接受 LLM 变更',
-		fixLintErrors: '修复代码检查错误',
+		fixLintErrors: '修复lint错误',
 		showSuggestionsOnSelect: '选中时显示建议',
 		optOutRequiresRestart: '退出（需要重启）',
 		disableSystemMessage: '禁用系统消息',
@@ -657,6 +774,25 @@ const defaultMessages = {
 		// Developer Mode
 		developerMode: '开发者模式',
 		developerModeDesc: '用于调试和故障排查的开发者工具。',
+
+		// Default Language
+		defaultLanguageDesc: '开发模式CoderChat界面语言。修改后需要重启生效。',
+		defaultLanguageAuto: '自动（跟随系统）',
+		defaultLanguageEn: '英文',
+		defaultLanguageZh: '中文',
+
+		// Assistant reply count
+		assistantReply: '第 {0} 次回复',
+
+		// User message count
+		userReply: '第 {0} 条消息',
+
+		// LLM request duration
+		llmRequestDuration: '响应时间',
+
+		// 渐进式渲染
+		loading: '加载中...',
+		loadMoreMessages: '加载更多 {0} 条消息',
 	},
 } as const
 
@@ -684,10 +820,14 @@ function getDefaultMessage<K extends keyof Messages>(key: K): string {
  * 通过修改 DEFAULT_LANG 变量来控制默认语言
  */
 const voidChatI18n = {
+	// 侧边栏标题
+	chatTitle: () => localize('void.chatTitle', getDefaultMessage('chatTitle')),
+
 	// 思考/推理相关
 	reasoning: () => localize('void.reasoning', getDefaultMessage('reasoning')),
 	reasoningDisabled: () => localize('void.reasoningDisabled', getDefaultMessage('reasoningDisabled')),
 	deepThinking: () => localize('void.deepThinking', getDefaultMessage('deepThinking')),
+	expand: () => localize('void.expand', getDefaultMessage('expand')),
 
 	// 聊天模式相关
 	chatModeNormal: () => localize('void.chatModeNormal', getDefaultMessage('chatModeNormal')),
@@ -730,6 +870,16 @@ const voidChatI18n = {
 	toolEditFileDone: () => localize('void.toolEditFileDone', getDefaultMessage('toolEditFileDone')),
 	toolRewriteFileDone: () => localize('void.toolRewriteFileDone', getDefaultMessage('toolRewriteFileDone')),
 	toolRunCommandDone: () => localize('void.toolRunCommandDone', getDefaultMessage('toolRunCommandDone')),
+
+	// 工具状态 - web_fetch
+	toolWebFetchDone: () => localize('void.toolWebFetchDone', getDefaultMessage('toolWebFetchDone')),
+	toolWebFetchProposed: () => localize('void.toolWebFetchProposed', getDefaultMessage('toolWebFetchProposed')),
+	toolWebFetchRunning: () => localize('void.toolWebFetchRunning', getDefaultMessage('toolWebFetchRunning')),
+
+	// 工具状态 - ask_user_question
+	toolAskUserQuestionDone: () => localize('void.toolAskUserQuestionDone', getDefaultMessage('toolAskUserQuestionDone')),
+	toolAskUserQuestionProposed: () => localize('void.toolAskUserQuestionProposed', getDefaultMessage('toolAskUserQuestionProposed')),
+	toolAskUserQuestionRunning: () => localize('void.toolAskUserQuestionRunning', getDefaultMessage('toolAskUserQuestionRunning')),
 
 	// 工具状态 - 提议状态
 	toolReadFileProposed: () => localize('void.toolReadFileProposed', getDefaultMessage('toolReadFileProposed')),
@@ -787,6 +937,10 @@ const voidChatI18n = {
 	userAnswered: () => localize('void.userAnswered', getDefaultMessage('userAnswered')),
 	disabledWhileRunning: () => localize('void.disabledWhileRunning', getDefaultMessage('disabledWhileRunning')),
 	checkpoint: () => localize('void.checkpoint', getDefaultMessage('checkpoint')),
+	checkpointClickToJump: () => localize('void.checkpointClickToJump', getDefaultMessage('checkpointClickToJump')),
+	checkpointClickToCancel: () => localize('void.checkpointClickToCancel', getDefaultMessage('checkpointClickToCancel')),
+	checkpointLatest: () => localize('void.checkpointLatest', getDefaultMessage('checkpointLatest')),
+	checkpointCancel: () => localize('void.checkpointCancel', getDefaultMessage('checkpointCancel')),
 	system: () => localize('void.system', getDefaultMessage('system')),
 	noFilesChanged: () => localize('void.noFilesChanged', getDefaultMessage('noFilesChanged')),
 	filesChanged: (count: number) => localize('void.filesChanged', getDefaultMessage('filesChanged'), count),
@@ -797,6 +951,27 @@ const voidChatI18n = {
 	changesInFile: (count: number) => localize('void.changesInFile', getDefaultMessage('changesInFile'), count),
 	fullError: () => localize('void.fullError', getDefaultMessage('fullError')),
 	disabledBecauseAnotherRunning: () => localize('void.disabledBecauseAnotherRunning', getDefaultMessage('disabledBecauseAnotherRunning')),
+
+	// Todo 工具
+	toolTodoWriteDone: () => localize('void.toolTodoWriteDone', getDefaultMessage('toolTodoWriteDone')),
+	toolTodoWriteProposed: () => localize('void.toolTodoWriteProposed', getDefaultMessage('toolTodoWriteProposed')),
+	toolTodoWriteRunning: () => localize('void.toolTodoWriteRunning', getDefaultMessage('toolTodoWriteRunning')),
+	toolTodoReadDone: () => localize('void.toolTodoReadDone', getDefaultMessage('toolTodoReadDone')),
+	toolTodoReadProposed: () => localize('void.toolTodoReadProposed', getDefaultMessage('toolTodoReadProposed')),
+	toolTodoReadRunning: () => localize('void.toolTodoReadRunning', getDefaultMessage('toolTodoReadRunning')),
+
+	// Todo 界面
+	todoList: () => localize('void.todoList', getDefaultMessage('todoList')),
+	todoPending: () => localize('void.todoPending', getDefaultMessage('todoPending')),
+	todoInProgress: () => localize('void.todoInProgress', getDefaultMessage('todoInProgress')),
+	todoCompleted: () => localize('void.todoCompleted', getDefaultMessage('todoCompleted')),
+	todoFailed: () => localize('void.todoFailed', getDefaultMessage('todoFailed')),
+	todoPriorityHigh: () => localize('void.todoPriorityHigh', getDefaultMessage('todoPriorityHigh')),
+	todoPriorityMedium: () => localize('void.todoPriorityMedium', getDefaultMessage('todoPriorityMedium')),
+	todoPriorityLow: () => localize('void.todoPriorityLow', getDefaultMessage('todoPriorityLow')),
+	todoNoTasks: () => localize('void.todoNoTasks', getDefaultMessage('todoNoTasks')),
+	todoTaskCount: (count: string) => localize('void.todoTaskCount', getDefaultMessage('todoTaskCount'), count),
+	todoTaskStats: (total: number, completed: number) => localize('void.todoTaskStats', getDefaultMessage('todoTaskStats'), total, completed),
 
 	// 生成相关
 	generating: () => localize('void.generating', getDefaultMessage('generating')),
@@ -992,6 +1167,25 @@ const voidChatI18n = {
 	// Developer Mode
 	developerMode: () => localize('void.developerMode', getDefaultMessage('developerMode')),
 	developerModeDesc: () => localize('void.developerModeDesc', getDefaultMessage('developerModeDesc')),
+
+	// Default Language
+	defaultLanguageDesc: () => localize('void.defaultLanguageDesc', getDefaultMessage('defaultLanguageDesc')),
+	defaultLanguageAuto: () => localize('void.defaultLanguageAuto', getDefaultMessage('defaultLanguageAuto')),
+	defaultLanguageEn: () => localize('void.defaultLanguageEn', getDefaultMessage('defaultLanguageEn')),
+	defaultLanguageZh: () => localize('void.defaultLanguageZh', getDefaultMessage('defaultLanguageZh')),
+
+	// Assistant reply count
+	assistantReply: (count: number) => localize('void.assistantReply', getDefaultMessage('assistantReply'), count),
+
+	// User message count
+	userReply: (count: number) => localize('void.userReply', getDefaultMessage('userReply'), count),
+
+	// LLM request duration
+	llmRequestDuration: () => localize('void.llmRequestDuration', getDefaultMessage('llmRequestDuration')),
+
+	// 渐进式渲染
+	loading: () => localize('void.loading', getDefaultMessage('loading')),
+	loadMoreMessages: (count: number) => localize('void.loadMoreMessages', getDefaultMessage('loadMoreMessages'), count),
 } as const
 
 /**

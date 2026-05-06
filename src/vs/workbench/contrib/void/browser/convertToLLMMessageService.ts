@@ -74,8 +74,8 @@ openai on developer system message - https://cdn.openai.com/spec/model-spec-2024
 
 
 // Helper function to convert images to OpenAI format
-const imagesToOpenAIFormat = (images: ImageAttachment[] | null): OpenAIImageContent[] => {
-	if (!images || images.length === 0) return []
+const imagesToOpenAIFormat = (images: ImageAttachment[] | null, supportsVision: boolean): OpenAIImageContent[] => {
+	if (!supportsVision || !images || images.length === 0) return []
 	return images.map(img => ({
 		type: 'image_url' as const,
 		image_url: {
@@ -88,8 +88,8 @@ const imagesToOpenAIFormat = (images: ImageAttachment[] | null): OpenAIImageCont
 type AnthropicMediaType = 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'
 
 // Helper function to convert images to Anthropic format
-const imagesToAnthropicFormat = (images: ImageAttachment[] | null): AnthropicImageContent[] => {
-	if (!images || images.length === 0) return []
+const imagesToAnthropicFormat = (images: ImageAttachment[] | null, supportsVision: boolean): AnthropicImageContent[] => {
+	if (!supportsVision || !images || images.length === 0) return []
 	return images.map(img => ({
 		type: 'image' as const,
 		source: {
@@ -100,7 +100,7 @@ const imagesToAnthropicFormat = (images: ImageAttachment[] | null): AnthropicIma
 	}))
 }
 
-const prepareMessages_openai_tools = (messages: SimpleLLMMessage[]): AnthropicOrOpenAILLMMessage[] => {
+const prepareMessages_openai_tools = (messages: SimpleLLMMessage[], supportsVision: boolean): AnthropicOrOpenAILLMMessage[] => {
 
 	const newMessages: OpenAILLMChatMessage[] = [];
 
@@ -109,7 +109,7 @@ const prepareMessages_openai_tools = (messages: SimpleLLMMessage[]): AnthropicOr
 
 		if (currMsg.role === 'user') {
 			// Handle user message with potential images
-			const imageContents = imagesToOpenAIFormat(currMsg.images)
+			const imageContents = imagesToOpenAIFormat(currMsg.images, supportsVision)
 			if (imageContents.length > 0) {
 				newMessages.push({
 					role: 'user',
@@ -197,7 +197,7 @@ user: ...content, result(id, content)
 
 type AnthropicOrOpenAILLMMessage = AnthropicLLMChatMessage | OpenAILLMChatMessage
 
-const prepareMessages_anthropic_tools = (messages: SimpleLLMMessage[], supportsAnthropicReasoning: boolean): AnthropicOrOpenAILLMMessage[] => {
+const prepareMessages_anthropic_tools = (messages: SimpleLLMMessage[], supportsAnthropicReasoning: boolean, supportsVision: boolean): AnthropicOrOpenAILLMMessage[] => {
 	const newMessages: (AnthropicLLMChatMessage | (SimpleLLMMessage & { role: 'tool' }))[] = messages;
 
 	for (let i = 0; i < messages.length; i += 1) {
@@ -224,7 +224,7 @@ const prepareMessages_anthropic_tools = (messages: SimpleLLMMessage[], supportsA
 
 		if (currMsg.role === 'user') {
 			// Handle user message with potential images
-			const imageContents = imagesToAnthropicFormat(currMsg.images)
+			const imageContents = imagesToAnthropicFormat(currMsg.images, supportsVision)
 			if (imageContents.length > 0) {
 				newMessages[i] = {
 					role: 'user',
@@ -267,7 +267,7 @@ const prepareMessages_anthropic_tools = (messages: SimpleLLMMessage[], supportsA
 }
 
 
-const prepareMessages_XML_tools = (messages: SimpleLLMMessage[], supportsAnthropicReasoning: boolean): AnthropicOrOpenAILLMMessage[] => {
+const prepareMessages_XML_tools = (messages: SimpleLLMMessage[], supportsAnthropicReasoning: boolean, supportsVision: boolean): AnthropicOrOpenAILLMMessage[] => {
 
 	const llmChatMessages: AnthropicOrOpenAILLMMessage[] = [];
 	for (let i = 0; i < messages.length; i += 1) {
@@ -295,7 +295,7 @@ const prepareMessages_XML_tools = (messages: SimpleLLMMessage[], supportsAnthrop
 		// add user or tool to the previous user message
 		else if (c.role === 'user') {
 			// Handle user message with potential images
-			const imageContents = imagesToAnthropicFormat(c.images)
+			const imageContents = imagesToAnthropicFormat(c.images, supportsVision)
 			if (imageContents.length > 0) {
 				llmChatMessages.push({
 					role: 'user',
@@ -339,6 +339,7 @@ const prepareOpenAIOrAnthropicMessages = ({
 	supportsSystemMessage,
 	specialToolFormat,
 	supportsAnthropicReasoning,
+	supportsVision,
 	contextWindow,
 	reservedOutputTokenSpace,
 }: {
@@ -348,6 +349,7 @@ const prepareOpenAIOrAnthropicMessages = ({
 	supportsSystemMessage: false | 'system-role' | 'developer-role' | 'separated',
 	specialToolFormat: 'openai-style' | 'anthropic-style' | undefined,
 	supportsAnthropicReasoning: boolean,
+	supportsVision: boolean,
 	contextWindow: number,
 	reservedOutputTokenSpace: number | null | undefined,
 }): { messages: AnthropicOrOpenAILLMMessage[], separateSystemMessage: string | undefined } => {
@@ -461,21 +463,21 @@ ${aiInstructions}
 	const newSysMsg = messages.shift()!.content
 
 
+
 	// ================ tools and anthropicReasoning ================
 	// SYSTEM MESSAGE HACK: we shifted (removed) the system message role, so now SimpleLLMMessage[] is valid
 
 	let llmChatMessages: AnthropicOrOpenAILLMMessage[] = []
 	if (!specialToolFormat) { // XML tool behavior
-		llmChatMessages = prepareMessages_XML_tools(messages as SimpleLLMMessage[], supportsAnthropicReasoning)
+		llmChatMessages = prepareMessages_XML_tools(messages as SimpleLLMMessage[], supportsAnthropicReasoning, supportsVision)
 	}
 	else if (specialToolFormat === 'anthropic-style') {
-		llmChatMessages = prepareMessages_anthropic_tools(messages as SimpleLLMMessage[], supportsAnthropicReasoning)
+		llmChatMessages = prepareMessages_anthropic_tools(messages as SimpleLLMMessage[], supportsAnthropicReasoning, supportsVision)
 	}
 	else if (specialToolFormat === 'openai-style') {
-		llmChatMessages = prepareMessages_openai_tools(messages as SimpleLLMMessage[])
+		llmChatMessages = prepareMessages_openai_tools(messages as SimpleLLMMessage[], supportsVision)
 	}
 	const llmMessages = llmChatMessages
-
 
 	// ================ system message add as first llmMessage ================
 
@@ -597,6 +599,7 @@ const prepareMessages = (params: {
 	supportsSystemMessage: false | 'system-role' | 'developer-role' | 'separated',
 	specialToolFormat: 'openai-style' | 'anthropic-style' | 'gemini-style' | undefined,
 	supportsAnthropicReasoning: boolean,
+	supportsVision: boolean,
 	contextWindow: number,
 	reservedOutputTokenSpace: number | null | undefined,
 	providerName: ProviderName
@@ -783,6 +786,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			specialToolFormat,
 			contextWindow,
 			supportsSystemMessage,
+			supportsVision,
 		} = getModelCapabilities(providerName, modelName, overridesOfModel)
 
 		const modelSelectionOptions = this.voidSettingsService.state.optionsOfModelSelection[featureName][modelSelection.providerName]?.[modelSelection.modelName]
@@ -800,6 +804,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			supportsSystemMessage,
 			specialToolFormat,
 			supportsAnthropicReasoning: providerName === 'anthropic',
+			supportsVision: supportsVision ?? false,
 			contextWindow,
 			reservedOutputTokenSpace,
 			providerName,
@@ -811,11 +816,13 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 
 		const { overridesOfModel } = this.voidSettingsService.state
 
+
 		const { providerName, modelName } = modelSelection
 		const {
 			specialToolFormat,
 			contextWindow,
 			supportsSystemMessage,
+			supportsVision,
 		} = getModelCapabilities(providerName, modelName, overridesOfModel)
 
 		const { disableSystemMessage } = this.voidSettingsService.state.globalSettings;
@@ -846,13 +853,13 @@ ${aiInstructions}
 			supportsSystemMessage,
 			specialToolFormat,
 			supportsAnthropicReasoning: providerName === 'anthropic',
+			supportsVision: supportsVision ?? false,
 			contextWindow,
 			reservedOutputTokenSpace,
 			providerName,
 		})
 		return { messages, separateSystemMessage, combinedSystemMessage };
 	}
-
 
 	// --- FIM ---
 

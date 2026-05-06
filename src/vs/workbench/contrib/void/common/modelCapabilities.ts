@@ -538,6 +538,7 @@ const anthropicModelOptions = {
 		supportsFIM: false,
 		specialToolFormat: 'anthropic-style',
 		supportsSystemMessage: 'separated',
+		supportsVision: true,
 		reasoningCapabilities: {
 			supportsReasoning: true,
 			canTurnOffReasoning: true,
@@ -555,6 +556,7 @@ const anthropicModelOptions = {
 		supportsFIM: false,
 		specialToolFormat: 'anthropic-style',
 		supportsSystemMessage: 'separated',
+		supportsVision: true,
 		reasoningCapabilities: {
 			supportsReasoning: true,
 			canTurnOffReasoning: true,
@@ -572,6 +574,7 @@ const anthropicModelOptions = {
 		supportsFIM: false,
 		specialToolFormat: 'anthropic-style',
 		supportsSystemMessage: 'separated',
+		supportsVision: true,
 		reasoningCapabilities: {
 			supportsReasoning: true,
 			canTurnOffReasoning: true,
@@ -589,6 +592,7 @@ const anthropicModelOptions = {
 		supportsFIM: false,
 		specialToolFormat: 'anthropic-style',
 		supportsSystemMessage: 'separated',
+		supportsVision: true,
 		reasoningCapabilities: false,
 	},
 	'claude-3-5-haiku-20241022': {
@@ -599,6 +603,7 @@ const anthropicModelOptions = {
 		supportsFIM: false,
 		specialToolFormat: 'anthropic-style',
 		supportsSystemMessage: 'separated',
+		supportsVision: true,
 		reasoningCapabilities: false,
 	},
 	'claude-3-opus-20240229': {
@@ -609,6 +614,7 @@ const anthropicModelOptions = {
 		supportsFIM: false,
 		specialToolFormat: 'anthropic-style',
 		supportsSystemMessage: 'separated',
+		supportsVision: true,
 		reasoningCapabilities: false,
 	},
 	'claude-3-sonnet-20240229': { // no point of using this, but including this for people who put it in
@@ -618,6 +624,7 @@ const anthropicModelOptions = {
 		supportsFIM: false,
 		specialToolFormat: 'anthropic-style',
 		supportsSystemMessage: 'separated',
+		supportsVision: true,
 		reasoningCapabilities: false,
 	}
 } as const satisfies { [s: string]: VoidStaticModelInfo }
@@ -684,6 +691,7 @@ const openAIModelOptions = { // https://platform.openai.com/docs/pricing
 		supportsFIM: false,
 		specialToolFormat: 'openai-style',
 		supportsSystemMessage: 'developer-role',
+		supportsVision: true,
 		reasoningCapabilities: false,
 	},
 	'gpt-4.1-mini': {
@@ -694,6 +702,7 @@ const openAIModelOptions = { // https://platform.openai.com/docs/pricing
 		supportsFIM: false,
 		specialToolFormat: 'openai-style',
 		supportsSystemMessage: 'developer-role',
+		supportsVision: true,
 		reasoningCapabilities: false,
 	},
 	'gpt-4.1-nano': {
@@ -704,6 +713,7 @@ const openAIModelOptions = { // https://platform.openai.com/docs/pricing
 		supportsFIM: false,
 		specialToolFormat: 'openai-style',
 		supportsSystemMessage: 'developer-role',
+		supportsVision: true,
 		reasoningCapabilities: false,
 	},
 	'o1': {
@@ -732,6 +742,7 @@ const openAIModelOptions = { // https://platform.openai.com/docs/pricing
 		supportsFIM: false,
 		specialToolFormat: 'openai-style',
 		supportsSystemMessage: 'system-role',
+		supportsVision: true,
 		reasoningCapabilities: false,
 	},
 	'o1-mini': {
@@ -751,6 +762,7 @@ const openAIModelOptions = { // https://platform.openai.com/docs/pricing
 		supportsFIM: false,
 		specialToolFormat: 'openai-style',
 		supportsSystemMessage: 'system-role', // ??
+		supportsVision: true,
 		reasoningCapabilities: false,
 	},
 } as const satisfies { [s: string]: VoidStaticModelInfo }
@@ -868,6 +880,7 @@ const geminiModelOptions = { // https://ai.google.dev/gemini-api/docs/pricing
 		supportsFIM: false,
 		supportsSystemMessage: 'separated',
 		specialToolFormat: 'gemini-style',
+		supportsVision: true,
 		reasoningCapabilities: {
 			supportsReasoning: true,
 			canTurnOffReasoning: true,
@@ -884,6 +897,7 @@ const geminiModelOptions = { // https://ai.google.dev/gemini-api/docs/pricing
 		supportsFIM: false,
 		supportsSystemMessage: 'separated',
 		specialToolFormat: 'gemini-style',
+		supportsVision: true,
 		reasoningCapabilities: false, // no reasoning
 	},
 	'gemini-2.5-flash-preview-04-17': {
@@ -894,6 +908,7 @@ const geminiModelOptions = { // https://ai.google.dev/gemini-api/docs/pricing
 		supportsFIM: false,
 		supportsSystemMessage: 'separated',
 		specialToolFormat: 'gemini-style',
+		supportsVision: true,
 		reasoningCapabilities: {
 			supportsReasoning: true,
 			canTurnOffReasoning: true,
@@ -910,6 +925,7 @@ const geminiModelOptions = { // https://ai.google.dev/gemini-api/docs/pricing
 		supportsFIM: false,
 		supportsSystemMessage: 'separated',
 		specialToolFormat: 'gemini-style',
+		supportsVision: true,
 		reasoningCapabilities: {
 			supportsReasoning: true,
 			canTurnOffReasoning: true,
@@ -926,6 +942,7 @@ const geminiModelOptions = { // https://ai.google.dev/gemini-api/docs/pricing
 		supportsFIM: false,
 		supportsSystemMessage: 'separated',
 		specialToolFormat: 'gemini-style',
+		supportsVision: true,
 		reasoningCapabilities: false,
 	},
 	'gemini-2.0-flash-lite-preview-02-05': {
@@ -936,6 +953,7 @@ const geminiModelOptions = { // https://ai.google.dev/gemini-api/docs/pricing
 		supportsFIM: false,
 		supportsSystemMessage: 'separated',
 		specialToolFormat: 'gemini-style',
+		supportsVision: true,
 		reasoningCapabilities: false,
 	},
 	'gemini-1.5-flash': {
@@ -946,6 +964,7 @@ const geminiModelOptions = { // https://ai.google.dev/gemini-api/docs/pricing
 		supportsFIM: false,
 		supportsSystemMessage: 'separated',
 		specialToolFormat: 'gemini-style',
+		supportsVision: true,
 		reasoningCapabilities: false,
 	},
 	'gemini-1.5-pro': {
@@ -956,6 +975,7 @@ const geminiModelOptions = { // https://ai.google.dev/gemini-api/docs/pricing
 		supportsFIM: false,
 		supportsSystemMessage: 'separated',
 		specialToolFormat: 'gemini-style',
+		supportsVision: true,
 		reasoningCapabilities: false,
 	},
 	'gemini-1.5-flash-8b': {
@@ -966,6 +986,7 @@ const geminiModelOptions = { // https://ai.google.dev/gemini-api/docs/pricing
 		supportsFIM: false,
 		supportsSystemMessage: 'separated',
 		specialToolFormat: 'gemini-style',
+		supportsVision: true,
 		reasoningCapabilities: false,
 	},
 } as const satisfies { [s: string]: VoidStaticModelInfo }

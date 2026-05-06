@@ -44,6 +44,7 @@ import { ServicesAccessor } from '../../../../editor/browser/editorExtensions.js
 import { IViewsService } from '../../../services/views/common/viewsService.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
+import { IChatThreadService } from './chatThreadService.js';
 
 // compare against search.contribution.ts and debug.contribution.ts, scm.contribution.ts (source control)
 
@@ -51,10 +52,12 @@ import { ICommandService } from '../../../../platform/commands/common/commands.j
 
 class SidebarViewPane extends ViewPane {
 
+	private readonly chatThreadService: IChatThreadService
+
 	constructor(
 		options: IViewPaneOptions,
 		@IInstantiationService instantiationService: IInstantiationService,
-		@IViewDescriptorService viewDescriptorService: IViewDescriptorService,
+		@IViewDescriptorService override readonly viewDescriptorService: IViewDescriptorService,
 		@IConfigurationService configurationService: IConfigurationService,
 		@IContextKeyService contextKeyService: IContextKeyService,
 		@IThemeService themeService: IThemeService,
@@ -68,9 +71,27 @@ class SidebarViewPane extends ViewPane {
 	) {
 		super(options, keybindingService, contextMenuService, configurationService, contextKeyService, viewDescriptorService, instantiationService, openerService, themeService, hoverService)
 
+		this.chatThreadService = instantiationService.invokeFunction(accessor => accessor.get(IChatThreadService))
+		this.viewDescriptorService = viewDescriptorService
+
+		// Listen for title change events from React side
+		this._register(this.chatThreadService.onDidChangeThreadTitle(({ threadId, title }) => {
+			if (threadId === this.chatThreadService.state.currentThreadId) {
+				;(this as any)._singleViewPaneContainerTitle = title
+				this.updateTitle(title)
+				this._updateViewContainerModelTitle(title)
+			}
+		}))
 	}
 
-
+	private _updateViewContainerModelTitle(title: string): void {
+		const viewContainer = this.viewDescriptorService.getViewContainerByViewId(this.id)
+		if (!viewContainer) return
+		const model = this.viewDescriptorService.getViewContainerModel(viewContainer) as any
+		if (!model) return
+		model._title = title
+		model._onDidChangeContainerInfo?.fire({ title: true })
+	}
 
 	protected override renderBody(parent: HTMLElement): void {
 		super.renderBody(parent);

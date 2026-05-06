@@ -256,13 +256,26 @@ Instructions:
 // ============================================================================
 
 /**
+ * 参数模式类型（支持嵌套结构）
+ */
+export type ParamSchema = {
+	description?: string
+	type?: 'string' | 'boolean' | 'number' | 'integer' | 'array' | 'object'
+	items?: ParamSchema
+	properties?: { [propName: string]: ParamSchema }
+	required?: string[]
+	additionalProperties?: boolean
+	enum?: string[]
+}
+
+/**
  * 内部工具信息类型
  */
 export type InternalToolInfo = {
 	name: string,
 	description: string,
 	params: {
-		[paramName: string]: { description: string }
+		[paramName: string]: ParamSchema
 	},
 	// Only if the tool is from an MCP server
 	mcpServerName?: string,
@@ -317,7 +330,7 @@ export const builtinTools: {
 		name: string;
 		description: string;
 		// more params can be generated than exist here, but these params must be a subset of them
-		params: Partial<{ [paramName in keyof SnakeCaseKeys<BuiltinToolCallParams[T]>]: { description: string } }>
+		params: Partial<{ [paramName in keyof SnakeCaseKeys<BuiltinToolCallParams[T]>]: ParamSchema }>
 	}
 } = {
 	// --- context-gathering (read/search/list) ---
@@ -484,9 +497,60 @@ export const builtinTools: {
 			questions: { description: 'Questions to ask the user (1-4 questions). Each question should have a question text, a short header, options array with 2-4 choices, and multiSelect boolean.' },
 			answers: { description: 'User answers collected by the permission component. This is an object mapping question headers to selected option labels or arrays of labels for multiSelect.' }
 		}
+	},
+
+	web_fetch: {//18
+		name: 'web_fetch',
+		description: `Extract and processes content from a URL according to the user's prompt, including local and private network addresses (e.g., localhost).`,
+		params: {
+			url: { description: 'The URL to fetch (must start with http:// or https://).' },
+			prompt: { description: 'Instructions on how to process the fetched content (e.g., "Summarize the article and extract key points").' }
+		}
+	},
+
+	todo_write: {//19
+		name: 'todo_write',
+		description: `Use this tool to create and manage a structured task list for your current coding session. This helps you track progress, organize complex tasks, and demonstrate thoroughness to the user.
+
+## When to Use This Tool
+Use this tool proactively in these scenarios:
+1. Complex multi-step tasks - When a task requires 3 or more distinct steps or actions
+2. Non-trivial and complex tasks - Tasks that require careful planning or multiple operations
+3. User explicitly requests todo list - When the user directly asks you to use the todo list
+4. User provides multiple tasks - When users provide a list of things to be done (numbered or comma-separated)
+
+## When NOT to Use This Tool
+Skip using this tool when:
+1. There is only a single, straightforward task
+2. The task is trivial and tracking it provides no organizational benefit
+3. The task is purely conversational or informational
+
+## Task States
+- pending: Task not yet started
+- in_progress: Currently working on (limit to ONE task at a time)
+- completed: Task finished successfully
+- failed: Task failed to complete
+
+## Important
+- Return valid JSON input
+- Only have ONE task in_progress at any time
+- Mark tasks complete IMMEDIATELY after finishing`,
+		params: {
+			todos: { description: 'The updated todo list. Each todo item has: id (string), task (string), status (pending|in_progress|completed|failed), and optional priority (high|medium|low).' }
+		}
+	},
+
+	todo_read: {//20
+		name: 'todo_read',
+		description: `Use this tool to read the current to-do list for the session. This tool should be used proactively and frequently to ensure that you are aware of the status of the current task list.
+
+Usage:
+- This tool takes no parameters
+- Returns a list of todo items with their status, priority, and content
+- Use this information to track progress and plan next steps
+- If no todos exist yet, an empty list will be returned`,
+		params: {}
 	}
-	// go_to_definition
-	// go_to_usages
 
 } satisfies { [T in keyof BuiltinToolResultType]: InternalToolInfo }
 
@@ -538,12 +602,42 @@ export const availableTools = (chatMode: ChatMode | null, mcpTools: InternalTool
 
 
 /**
+ * 将参数模式转换为描述字符串
+ */
+const paramSchemaToDescription = (schema: ParamSchema, indent: string = ''): string => {
+	const parts: string[] = []
+	if (schema.description) {
+		parts.push(schema.description)
+	}
+	if (schema.type) {
+		parts.push(`(type: ${schema.type})`)
+	}
+	if (schema.enum) {
+		parts.push(`(enum: ${schema.enum.join(' | ')})`)
+	}
+	if (schema.properties) {
+		const nestedDesc = Object.entries(schema.properties)
+			.map(([propName, propSchema]) => `${indent}  ${propName}: ${paramSchemaToDescription(propSchema, indent + '  ')}`)
+			.join('\n')
+		parts.push(`{\n${nestedDesc}\n${indent}}`)
+	}
+	if (schema.items) {
+		parts.push(`[ ${paramSchemaToDescription(schema.items, indent)} ]`)
+	}
+	return parts.join(' ')
+}
+
+/**
  * 生成工具定义的 XML 字符串
  * 将工具列表格式化为 XML 格式的提示词
  */
 const toolCallDefinitionsXMLString = (tools: InternalToolInfo[]) => {
 	return `${tools.map((t, i) => {
-		const params = Object.keys(t.params).map(paramName => `<${paramName}>${t.params[paramName].description}</${paramName}>`).join('\n')
+		const params = Object.keys(t.params).map(paramName => {
+			const schema = t.params[paramName]
+			const desc = schema.description || paramSchemaToDescription(schema)
+			return `<${paramName}>${desc}</${paramName}>`
+		}).join('\n')
 		return `\
     ${i + 1}. ${t.name}
     Description: ${t.description}

@@ -278,8 +278,19 @@ const _sendOpenAICompatibleFIM = async ({ messages: { prefix, suffix, stopTokens
 const toOpenAICompatibleTool = (toolInfo: InternalToolInfo) => {
 	const { name, description, params } = toolInfo
 
-	const paramsWithType: { [s: string]: { description: string; type: 'string' } } = {}
-	for (const key in params) { paramsWithType[key] = { ...params[key], type: 'string' } }
+	// Convert ParamSchema to JSON Schema format for OpenAI
+	const properties: Record<string, unknown> = {}
+	for (const key in params) {
+		const schema = params[key]
+		properties[key] = {
+			...(schema.type ? { type: schema.type } : {}),
+			...(schema.description ? { description: schema.description } : {}),
+			...(schema.items ? { items: schema.items } : {}),
+			...(schema.properties ? { properties: schema.properties } : {}),
+			...(schema.required ? { required: schema.required } : {}),
+			...(schema.enum ? { enum: schema.enum } : {}),
+		}
+	}
 
 	return {
 		type: 'function',
@@ -289,7 +300,7 @@ const toOpenAICompatibleTool = (toolInfo: InternalToolInfo) => {
 			description: description,
 			parameters: {
 				type: 'object',
-				properties: params,
+				properties: properties,
 				// required: Object.keys(params), // in strict mode, all params are required and additionalProperties is false
 				// additionalProperties: false,
 			},
@@ -528,14 +539,27 @@ const _openaiCompatibleList = async ({ onSuccess: onSuccess_, onError: onError_,
 // ------------ ANTHROPIC (HELPERS) ------------
 const toAnthropicTool = (toolInfo: InternalToolInfo) => {
 	const { name, description, params } = toolInfo
-	const paramsWithType: { [s: string]: { description: string; type: 'string' } } = {}
-	for (const key in params) { paramsWithType[key] = { ...params[key], type: 'string' } }
+
+	// Convert ParamSchema to JSON Schema format for Anthropic
+	const properties: Record<string, unknown> = {}
+	for (const key in params) {
+		const schema = params[key]
+		properties[key] = {
+			...(schema.type ? { type: schema.type } : {}),
+			...(schema.description ? { description: schema.description } : {}),
+			...(schema.items ? { items: schema.items } : {}),
+			...(schema.properties ? { properties: schema.properties } : {}),
+			...(schema.required ? { required: schema.required } : {}),
+			...(schema.enum ? { enum: schema.enum } : {}),
+		}
+	}
+
 	return {
 		name: name,
 		description: description,
 		input_schema: {
 			type: 'object',
-			properties: paramsWithType,
+			properties: properties,
 			// required: Object.keys(params),
 		},
 	} satisfies Anthropic.Messages.Tool

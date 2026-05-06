@@ -773,10 +773,19 @@ export const VoidInputBox2 = forwardRef<HTMLTextAreaElement, InputBox2Props>(fun
 			}, [onOpenOptionMenu, accessor])}
 
 			onChange={useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-				const r = textAreaRef.current
-				if (!r) return
-				onChangeText?.(r.value)
+				// Use e.currentTarget.value directly for reliability
+				onChangeText?.(e.currentTarget.value)
 				adjustHeight()
+			}, [onChangeText, adjustHeight])}
+
+			onPaste={useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+				// Allow the paste to complete first, then update state
+				requestAnimationFrame(() => {
+					const r = textAreaRef.current
+					if (!r) return
+					onChangeText?.(r.value)
+					adjustHeight()
+				})
 			}, [onChangeText, adjustHeight])}
 
 			onKeyDown={useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {

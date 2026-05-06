@@ -24,7 +24,6 @@ export const QuickEditChat = ({
 	initText
 }: QuickEditPropsType) => {
 
-	const t = useVoidChatI18n()
 	const accessor = useAccessor()
 	const editCodeService = accessor.get('IEditCodeService')
 	const sizerRef = useRef<HTMLDivElement | null>(null)
@@ -97,6 +96,7 @@ export const QuickEditChat = ({
 
 	const keybindingString = accessor.get('IKeybindingService').lookupKeybinding(VOID_CTRL_K_ACTION_ID)?.getLabel()
 
+	const t = useVoidChatI18n()
 	const chatAreaRef = useRef<HTMLDivElement | null>(null)
 	return <div ref={sizerRef} style={{ maxWidth: 450 }} className={`py-2 w-full`}>
 		<VoidChatArea

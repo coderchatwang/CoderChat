@@ -107,7 +107,7 @@ const defaultMessageState: UserMessageState = {
 
 // a 'thread' means a chat message history
 
-type WhenMounted = {
+export type WhenMounted = {
 	textAreaRef: { current: HTMLTextAreaElement | null }; // the textarea that this thread has, gets set in SidebarChat
 	scrollToBottom: () => void;
 }
@@ -240,6 +240,7 @@ export interface IChatThreadService {
 
 	onDidChangeCurrentThread: Event<void>;
 	onDidChangeStreamState: Event<{ threadId: string }>
+	onDidChangeThreadTitle: Event<{ threadId: string, title: string }>
 
 	getCurrentThread(): ThreadType;
 	openNewThread(): void;
@@ -298,6 +299,9 @@ export interface IChatThreadService {
 
 	focusCurrentChat: () => Promise<void>
 	blurCurrentChat: () => Promise<void>
+
+	// notify sidebar pane to update title
+	notifyThreadTitleChanged(threadId: string, title: string): void
 }
 
 export const IChatThreadService = createDecorator<IChatThreadService>('voidChatThreadService');
@@ -310,6 +314,9 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 
 	private readonly _onDidChangeStreamState = new Emitter<{ threadId: string }>();
 	readonly onDidChangeStreamState: Event<{ threadId: string }> = this._onDidChangeStreamState.event;
+
+	private readonly _onDidChangeThreadTitle = new Emitter<{ threadId: string, title: string }>();
+	readonly onDidChangeThreadTitle: Event<{ threadId: string, title: string }> = this._onDidChangeThreadTitle.event;
 
 	readonly streamState: ThreadStreamState = {}
 	state: ThreadsState // allThreads is persisted, currentThread is not
@@ -367,11 +374,35 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 
 	}
 
+	// Timeout for waiting whenMounted promise (in milliseconds)
+	private static readonly WHEN_MOUNTED_TIMEOUT = 3000
+
+	// Helper to wait for whenMounted with timeout
+	private async _awaitWhenMountedWithTimeout(whenMounted: Promise<WhenMounted> | undefined): Promise<WhenMounted | undefined> {
+		if (!whenMounted) return undefined
+		const result = await Promise.race([
+			whenMounted,
+			timeout(ChatThreadService.WHEN_MOUNTED_TIMEOUT).then(() => undefined)
+		])
+		return result
+	}
+
+	// Helper to run callback when mounted with timeout (fire and forget style)
+	private _runWhenMountedWithTimeout(whenMounted: Promise<WhenMounted> | undefined, callback: (m: WhenMounted) => void): void {
+		if (!whenMounted) return
+		Promise.race([
+			whenMounted,
+			timeout(ChatThreadService.WHEN_MOUNTED_TIMEOUT).then(() => null)
+		]).then(m => {
+			if (m) callback(m)
+		})
+	}
+
 	async focusCurrentChat() {
 		const threadId = this.state.currentThreadId
 		const thread = this.state.allThreads[threadId]
 		if (!thread) return
-		const s = await thread.state.mountedInfo?.whenMounted
+		const s = await this._awaitWhenMountedWithTimeout(thread.state.mountedInfo?.whenMounted)
 		if (!this.isCurrentlyFocusingMessage()) {
 			s?.textAreaRef.current?.focus()
 		}
@@ -380,10 +411,14 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		const threadId = this.state.currentThreadId
 		const thread = this.state.allThreads[threadId]
 		if (!thread) return
-		const s = await thread.state.mountedInfo?.whenMounted
+		const s = await this._awaitWhenMountedWithTimeout(thread.state.mountedInfo?.whenMounted)
 		if (!this.isCurrentlyFocusingMessage()) {
 			s?.textAreaRef.current?.blur()
 		}
+	}
+
+	notifyThreadTitleChanged(threadId: string, title: string) {
+		this._onDidChangeThreadTitle.fire({ threadId, title })
 	}
 
 
@@ -439,8 +474,6 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 
 		this.state = newState
 
-		this._onDidChangeCurrentThread.fire()
-
 
 		// if we just switched to a thread, update its current stream state if it's not streaming to possibly streaming
 		const threadId = newState.currentThreadId
@@ -464,23 +497,25 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 
 
 		// if we did not just set the state to true, set mount info
-		if (doNotRefreshMountInfo) return
+		if (!doNotRefreshMountInfo) {
+			let whenMountedResolver: (w: WhenMounted) => void
+			const whenMountedPromise = new Promise<WhenMounted>((res) => whenMountedResolver = res)
 
-		let whenMountedResolver: (w: WhenMounted) => void
-		const whenMountedPromise = new Promise<WhenMounted>((res) => whenMountedResolver = res)
+			this._setThreadState(threadId, {
+				mountedInfo: {
+					whenMounted: whenMountedPromise,
+					mountedIsResolvedRef: { current: false },
+					_whenMountedResolver: (w: WhenMounted) => {
+						whenMountedResolver(w)
+						const mountInfo = this.state.allThreads[threadId]?.state.mountedInfo
+						if (mountInfo) mountInfo.mountedIsResolvedRef.current = true
+					},
+				}
+			}, true) // do not trigger an update
+		}
 
-		this._setThreadState(threadId, {
-			mountedInfo: {
-				whenMounted: whenMountedPromise,
-				mountedIsResolvedRef: { current: false },
-				_whenMountedResolver: (w: WhenMounted) => {
-					whenMountedResolver(w)
-					const mountInfo = this.state.allThreads[threadId]?.state.mountedInfo
-					if (mountInfo) mountInfo.mountedIsResolvedRef.current = true
-				},
-			}
-		}, true) // do not trigger an update
-
+		// Fire the event at the end, after all state updates (including mountedInfo) are complete
+		this._onDidChangeCurrentThread.fire()
 
 
 	}
@@ -591,7 +626,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		// add assistant message
 		if (this.streamState[threadId]?.isRunning === 'LLM') {
 			const { displayContentSoFar, reasoningSoFar, toolCallSoFar } = this.streamState[threadId].llmInfo
-			this._addMessageToThread(threadId, { role: 'assistant', displayContent: displayContentSoFar, reasoning: reasoningSoFar, anthropicReasoning: null, toolCalls: toolCallSoFar ? [toolCallSoFar] : null, rawLLMContent: null, modelName: null })
+			this._addMessageToThread(threadId, { role: 'assistant', displayContent: displayContentSoFar, reasoning: reasoningSoFar, anthropicReasoning: null, toolCalls: toolCallSoFar ? [toolCallSoFar] : null, rawLLMContent: null, modelName: null, startTime: null, endTime: null })
 			if (toolCallSoFar) this._addMessageToThread(threadId, { role: 'interrupted_streaming_tool', name: toolCallSoFar.name, mcpServerName: this._computeMCPServerOfToolName(toolCallSoFar.name) })
 		}
 		// add tool that's running
@@ -844,12 +879,15 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 				nAttempts += 1
 
 				type ResTypes =
-					| { type: 'llmDone', toolCall?: RawToolCallObj, info: { fullText: string, fullReasoning: string, anthropicReasoning: AnthropicReasoning[] | null, modelName?: string } }
-					| { type: 'llmError', error?: { message: string; fullError: Error | null; } }
+					| { type: 'llmDone', toolCall?: RawToolCallObj, info: { fullText: string, fullReasoning: string, anthropicReasoning: AnthropicReasoning[] | null, modelName?: string }, startTime: number, endTime: number }
+					| { type: 'llmError', error?: { message: string; fullError: Error | null; }, startTime: number, endTime: number }
 					| { type: 'llmAborted' }
 
 				let resMessageIsDonePromise: (res: ResTypes) => void // resolves when user approves this tool use (or if tool doesn't require approval)
 				const messageIsDonePromise = new Promise<ResTypes>((res, rej) => { resMessageIsDonePromise = res })
+
+				// Record LLM request start time
+				const llmRequestStartTime = Date.now()
 
 				const llmCancelToken = this._llmMessageService.sendLLMMessage({
 					messagesType: 'chatMessages',
@@ -864,10 +902,10 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 						this._setStreamState(threadId, { isRunning: 'LLM', llmInfo: { displayContentSoFar: fullText, reasoningSoFar: fullReasoning, toolCallSoFar: toolCall ?? null }, interrupt: Promise.resolve(() => { if (llmCancelToken) this._llmMessageService.abort(llmCancelToken) }) })
 					},
 					onFinalMessage: async ({ fullText, fullReasoning, toolCall, anthropicReasoning, modelName }) => {
-						resMessageIsDonePromise({ type: 'llmDone', toolCall, info: { fullText, fullReasoning, anthropicReasoning, modelName } }) // resolve with tool calls
+						resMessageIsDonePromise({ type: 'llmDone', toolCall, info: { fullText, fullReasoning, anthropicReasoning, modelName }, startTime: llmRequestStartTime, endTime: Date.now() }) // resolve with tool calls
 					},
 					onError: async (error) => {
-						resMessageIsDonePromise({ type: 'llmError', error: error })
+						resMessageIsDonePromise({ type: 'llmError', error: error, startTime: llmRequestStartTime, endTime: Date.now() })
 					},
 					onOptionsCreated: ({ options }) => {
 						// Add options as a system message before API call
@@ -938,9 +976,9 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 					}
 					// error, but too many attempts
 					else {
-						const { error } = llmRes
+						const { error, startTime, endTime } = llmRes
 						const { displayContentSoFar, reasoningSoFar, toolCallSoFar } = this.streamState[threadId].llmInfo
-						this._addMessageToThread(threadId, { role: 'assistant', displayContent: displayContentSoFar, reasoning: reasoningSoFar, anthropicReasoning: null, toolCalls: toolCallSoFar ? [toolCallSoFar] : null, rawLLMContent: null, modelName: null })
+						this._addMessageToThread(threadId, { role: 'assistant', displayContent: displayContentSoFar, reasoning: reasoningSoFar, anthropicReasoning: null, toolCalls: toolCallSoFar ? [toolCallSoFar] : null, rawLLMContent: null, modelName: null, startTime, endTime })
 						if (toolCallSoFar) this._addMessageToThread(threadId, { role: 'interrupted_streaming_tool', name: toolCallSoFar.name, mcpServerName: this._computeMCPServerOfToolName(toolCallSoFar.name) })
 
 						this._setStreamState(threadId, { isRunning: undefined, error })
@@ -950,9 +988,9 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 				}
 
 				// llm res success
-				const { toolCall, info } = llmRes
+				const { toolCall, info, startTime, endTime } = llmRes
 
-				this._addMessageToThread(threadId, { role: 'assistant', displayContent: info.fullText, reasoning: info.fullReasoning, anthropicReasoning: info.anthropicReasoning, toolCalls: toolCall ? [toolCall] : null, rawLLMContent: null, modelName: info.modelName ?? null })
+				this._addMessageToThread(threadId, { role: 'assistant', displayContent: info.fullText, reasoning: info.fullReasoning, anthropicReasoning: info.anthropicReasoning, toolCalls: toolCall ? [toolCall] : null, rawLLMContent: null, modelName: info.modelName ?? null, startTime, endTime })
 
 				// Add system message to display onFinalMessage debug info 这里不需要了暂时
 				// const finalMessageDebugInfo = {
@@ -1313,7 +1351,7 @@ We only need to do it for files that were edited since `from`, ie files between 
 						run: () => {
 							this.switchToThread(threadId)
 							// scroll to bottom
-							this.state.allThreads[threadId]?.state.mountedInfo?.whenMounted.then(m => {
+							this._runWhenMountedWithTimeout(this.state.allThreads[threadId]?.state.mountedInfo?.whenMounted, m => {
 								m.scrollToBottom()
 							})
 						}
@@ -1361,7 +1399,7 @@ We only need to do it for files that were edited since `from`, ie files between 
 					run: () => {
 						this.switchToThread(threadId)
 						// scroll to bottom
-						this.state.allThreads[threadId]?.state.mountedInfo?.whenMounted.then(m => {
+						this._runWhenMountedWithTimeout(this.state.allThreads[threadId]?.state.mountedInfo?.whenMounted, m => {
 							m.scrollToBottom()
 						})
 					}
@@ -1395,6 +1433,7 @@ We only need to do it for files that were edited since `from`, ie files between 
 		const currSelns: StagingSelectionItem[] = _chatSelections ?? thread.state.stagingSelections
 		const currImages: ImageAttachment[] = _chatImages ?? thread.state.stagingImages
 
+
 		const userMessageContent = await chat_userMessageContent(instructions, currSelns, { directoryStrService: this._directoryStringService, fileService: this._fileService }) // user message + names of files (NOT content)
 		const userHistoryElt: ChatMessage = { role: 'user', content: userMessageContent, displayContent: instructions, selections: currSelns, images: currImages.length > 0 ? currImages : null, state: defaultMessageState }
 		this._addMessageToThread(threadId, userHistoryElt)
@@ -1408,11 +1447,10 @@ We only need to do it for files that were edited since `from`, ie files between 
 		)
 
 		// scroll to bottom
-		this.state.allThreads[threadId]?.state.mountedInfo?.whenMounted.then(m => {
+		this._runWhenMountedWithTimeout(this.state.allThreads[threadId]?.state.mountedInfo?.whenMounted, m => {
 			m.scrollToBottom()
 		})
 	}
-
 
 	async addUserMessageAndStreamResponse({ userMessage, _chatSelections, _chatImages, threadId }: { userMessage: string, _chatSelections?: StagingSelectionItem[], _chatImages?: ImageAttachment[], threadId: string }) {
 		const thread = this.state.allThreads[threadId];

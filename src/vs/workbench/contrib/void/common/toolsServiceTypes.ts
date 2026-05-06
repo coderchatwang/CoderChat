@@ -40,6 +40,15 @@ export const toolApprovalTypes = new Set<ToolApprovalType>([
 ])
 
 
+// Todo types
+export type TodoItem = {
+	id: string
+	task: string
+	status: 'pending' | 'in_progress' | 'completed' | 'failed'
+	priority?: 'high' | 'medium' | 'low'
+}
+
+
 
 
 // PARAMS OF TOOL CALL
@@ -65,6 +74,11 @@ export type BuiltinToolCallParams = {
 	'xml_escape': { uri: URI, escapeAll: boolean },
 	// ---
 	'ask_user_question': { questions: AskUserQuestionItem[], answers: Record<string, string> },
+	// ---
+	'web_fetch': { url: string, prompt: string },
+	// ---
+	'todo_write': { todos: TodoItem[] },
+	'todo_read': {},
 }
 
 // Ask user question types
@@ -103,6 +117,11 @@ export type BuiltinToolResultType = {
 	'xml_escape': { escapedContent: string; originalLength: number; escapedLength: number; charactersEscaped: number },
 	// ---
 	'ask_user_question': { answers: Record<string, string | string[]> },
+	// ---
+	'web_fetch': { content: string, statusCode: number, url: string },
+	// ---
+	'todo_write': { todos: TodoItem[] },
+	'todo_read': { todos: TodoItem[] },
 }
 
 

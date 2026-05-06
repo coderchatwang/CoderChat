@@ -4,7 +4,8 @@
  *--------------------------------------------------------------------------------------*/
 
 import React, { JSX, useMemo, useState } from 'react'
-import { marked, MarkedToken, Token } from 'marked'
+import { MarkedToken, Token } from 'marked'
+import { getCachedTokens, prefetchTokensBatch } from './markdownCache.js'
 
 import { convertToVscodeLang, detectLanguage } from '../../../../common/helpers/languageHelpers.js'
 import { BlockCodeApplyWrapper } from './ApplyBlockHoverButtons.js'
@@ -546,8 +547,11 @@ const RenderToken = ({ token, inPTag, codeURI, chatMessageLocation, tokenIdx, ..
 
 
 export const ChatMarkdownRender = ({ string, inPTag = false, chatMessageLocation, ...options }: { string: string, inPTag?: boolean, codeURI?: URI, chatMessageLocation: ChatMessageLocation | undefined } & RenderTokenOptions) => {
-	string = string.replaceAll('\n•', '\n\n•')
-	const tokens = marked.lexer(string); // https://marked.js.org/using_pro#renderer
+	// 使用缓存的 tokens 解析，避免重复解析相同的 Markdown 内容
+	const tokens = useMemo(() => {
+		return getCachedTokens(string)
+	}, [string])
+
 	return (
 		<>
 			{tokens.map((token, index) => (
@@ -556,3 +560,6 @@ export const ChatMarkdownRender = ({ string, inPTag = false, chatMessageLocation
 		</>
 	)
 }
+
+// 导出预热函数，供外部使用
+export { prefetchTokensBatch }

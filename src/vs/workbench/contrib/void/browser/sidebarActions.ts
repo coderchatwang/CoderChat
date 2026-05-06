@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------*/
 
 import { KeyCode, KeyMod } from '../../../../base/common/keyCodes.js';
+import { timeout } from '../../../../base/common/async.js';
 
 
 import { Action2, MenuId, registerAction2 } from '../../../../platform/actions/common/actions.js';
@@ -22,6 +23,21 @@ import { VOID_CTRL_L_ACTION_ID } from './actionIDs.js';
 import { localize2 } from '../../../../nls.js';
 import { IChatThreadService } from './chatThreadService.js';
 import { IViewsService } from '../../../services/views/common/viewsService.js';
+import { WhenMounted } from './chatThreadService.js';
+
+// Timeout for waiting whenMounted promise (in milliseconds)
+const WHEN_MOUNTED_TIMEOUT = 3000
+
+// Helper function to wait for whenMounted with timeout
+const awaitWhenMountedWithTimeout = async (whenMounted: Promise<WhenMounted> | undefined): Promise<WhenMounted | undefined> => {
+	if (!whenMounted) return undefined
+
+	const result = await Promise.race([
+		whenMounted,
+		timeout(WHEN_MOUNTED_TIMEOUT).then(() => undefined)
+	])
+	return result
+}
 
 // ---------- Register commands and keybindings ----------
 
@@ -169,7 +185,7 @@ registerAction2(class extends Action2 {
 		const oldThreadId = chatThreadsService.state.currentThreadId
 		const oldThread = chatThreadsService.state.allThreads[oldThreadId]
 
-		const oldUI = await oldThread?.state.mountedInfo?.whenMounted
+		const oldUI = await awaitWhenMountedWithTimeout(oldThread?.state.mountedInfo?.whenMounted)
 
 		const oldSelns = oldThread?.state.stagingSelections
 		const oldVal = oldUI?.textAreaRef?.current?.value
@@ -183,7 +199,7 @@ registerAction2(class extends Action2 {
 		const newThreadId = chatThreadsService.state.currentThreadId
 		const newThread = chatThreadsService.state.allThreads[newThreadId]
 
-		const newUI = await newThread?.state.mountedInfo?.whenMounted
+		const newUI = await awaitWhenMountedWithTimeout(newThread?.state.mountedInfo?.whenMounted)
 		chatThreadsService.setCurrentThreadState({ stagingSelections: oldSelns, })
 		if (newUI?.textAreaRef?.current && oldVal) newUI.textAreaRef.current.value = oldVal
 

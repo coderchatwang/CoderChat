@@ -130,6 +130,7 @@ import { IVoidUpdateService } from '../../workbench/contrib/void/common/voidUpda
 import { MetricsMainService } from '../../workbench/contrib/void/electron-main/metricsMainService.js';
 import { VoidMainUpdateService } from '../../workbench/contrib/void/electron-main/voidUpdateMainService.js';
 import { LLMMessageChannel } from '../../workbench/contrib/void/electron-main/sendLLMMessageChannel.js';
+import { WebFetchChannel } from '../../workbench/contrib/void/electron-main/webFetchChannel.js';
 import { VoidSCMService } from '../../workbench/contrib/void/electron-main/voidSCMMainService.js';
 import { IVoidSCMService } from '../../workbench/contrib/void/common/voidSCMTypes.js';
 import { MCPChannel } from '../../workbench/contrib/void/electron-main/mcpChannel.js';
@@ -1245,6 +1246,10 @@ export class CodeApplication extends Disposable {
 
 		const sendLLMMessageChannel = new LLMMessageChannel(accessor.get(IMetricsService), accessor.get(IConfigurationService));
 		mainProcessElectronServer.registerChannel('void-channel-llmMessage', sendLLMMessageChannel);
+
+		// Web fetch channel for fetching URLs with proxy support
+		const webFetchChannel = new WebFetchChannel(accessor.get(IConfigurationService));
+		mainProcessElectronServer.registerChannel('void-channel-webFetch', webFetchChannel);
 
 		// Void added this
 		const voidSCMChannel = ProxyChannel.fromService(accessor.get(IVoidSCMService), disposables);

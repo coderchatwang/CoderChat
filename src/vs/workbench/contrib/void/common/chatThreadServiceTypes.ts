@@ -64,7 +64,8 @@ export type ChatMessage =
 			stagingSelections: StagingSelectionItem[];
 			isBeingEdited: boolean;
 		}
-	} | {
+	}
+	| {
 		role: 'assistant';
 		displayContent: string; // content received from LLM  - allowed to be '', will be replaced with (empty)
 		reasoning: string; // reasoning from the LLM, used for step-by-step thinking
@@ -75,6 +76,10 @@ export type ChatMessage =
 		toolCalls: RawToolCallObj[] | null; // tools that were called in this response
 		rawLLMContent: string | null; // raw content string from LLM before processing
 		modelName: string | null; // model that generated this response
+
+		// LLM request timing
+		startTime: number | null; // timestamp when LLM request started (in milliseconds)
+		endTime: number | null; // timestamp when LLM request ended (in milliseconds)
 	}
 	| ToolMessage<ToolName>
 	| DecorativeCanceledTool

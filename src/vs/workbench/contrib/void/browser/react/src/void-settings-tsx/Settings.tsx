@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------*/
 
 import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react'; // Added useRef import just in case it was missed, though likely already present
-import { ProviderName, SettingName, displayInfoOfSettingName, providerNames, VoidStatefulModelInfo, customSettingNamesOfProvider, RefreshableProviderName, refreshableProviderNames, displayInfoOfProviderName, nonlocalProviderNames, localProviderNames, GlobalSettingName, featureNames, displayInfoOfFeatureName, isProviderNameDisabled, FeatureName, hasDownloadButtonsOnModelsProviderNames, subTextMdOfProviderName } from '../../../../common/voidSettingsTypes.js'
+import { ProviderName, SettingName, displayInfoOfSettingName, providerNames, VoidStatefulModelInfo, customSettingNamesOfProvider, RefreshableProviderName, refreshableProviderNames, displayInfoOfProviderName, nonlocalProviderNames, localProviderNames, GlobalSettingName, featureNames, displayInfoOfFeatureName, isProviderNameDisabled, FeatureName, hasDownloadButtonsOnModelsProviderNames, subTextMdOfProviderName, DefaultLang } from '../../../../common/voidSettingsTypes.js'
 import ErrorBoundary from '../sidebar-tsx/ErrorBoundary.js'
 import { VoidButtonBgDarken, VoidCustomDropdownBox, VoidInputBox2, VoidSimpleInputBox, VoidSwitch } from '../util/inputs.js'
 import { useAccessor, useIsDark, useIsOptedOut, useRefreshModelListener, useRefreshModelState, useSettingsState } from '../util/services.js'
@@ -1369,9 +1369,22 @@ export const Settings = () => {
 													</div>
 												</ErrorBoundary>
 											</div>
+
+											<div className='text-sm text-void-fg-3 mt-1'>{t.defaultLanguageDesc()}</div>
+											<div className='my-2'>
+												<ErrorBoundary>
+													<VoidCustomDropdownBox
+														className='text-xs text-void-fg-3 bg-void-bg-1 border border-void-border-1 rounded p-0.5 px-1'
+														options={['auto', 'en', 'zh'] as DefaultLang[]}
+														selectedOption={settingsState.globalSettings.defaultLang}
+														onChangeOption={(newVal) => voidSettingsService.setGlobalSetting('defaultLang', newVal)}
+														getOptionDisplayName={(val) => val === 'auto' ? t.defaultLanguageAuto() : val === 'en' ? t.defaultLanguageEn() : t.defaultLanguageZh()}
+														getOptionDropdownName={(val) => val === 'auto' ? t.defaultLanguageAuto() : val === 'en' ? t.defaultLanguageEn() : t.defaultLanguageZh()}
+														getOptionsEqual={(a, b) => a === b}
+													/>
+												</ErrorBoundary>
+											</div>
 										</div>
-
-
 
 										<div className='w-full'>
 											<h4 className={`text-base`}>{t.editor()}</h4>

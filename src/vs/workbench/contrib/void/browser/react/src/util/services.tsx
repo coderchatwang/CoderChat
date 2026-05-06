@@ -54,6 +54,8 @@ import { IExtensionManagementService } from '../../../../../../../platform/exten
 import { IMCPService } from '../../../../common/mcpService.js';
 import { IStorageService, StorageScope } from '../../../../../../../platform/storage/common/storage.js'
 import { OPT_OUT_KEY } from '../../../../common/storageKeys.js'
+import { initDefaultLang } from './i18n.js'
+import { syncThreadsStateToStore, syncStreamStateToStore } from '../stores/syncService.js'
 
 
 // normally to do this you'd use a useEffect that calls .onDidChangeState(), but useEffect mounts too late and misses initial state changes
@@ -115,9 +117,15 @@ export const _registerServices = (accessor: ServicesAccessor) => {
 
 
 	chatThreadsState = chatThreadsStateService.state
+	// 初始同步到 Zustand
+	syncThreadsStateToStore(chatThreadsState)
+
 	globalDisposables.push(
 		chatThreadsStateService.onDidChangeCurrentThread(() => {
 			chatThreadsState = chatThreadsStateService.state
+			// 同步到 Zustand（细粒度状态管理）
+			syncThreadsStateToStore(chatThreadsState)
+			// 保持向后兼容的监听器
 			chatThreadsStateListeners.forEach(l => l(chatThreadsState))
 		})
 	)
@@ -127,11 +135,20 @@ export const _registerServices = (accessor: ServicesAccessor) => {
 	globalDisposables.push(
 		chatThreadsStateService.onDidChangeStreamState(({ threadId }) => {
 			chatThreadsStreamState = chatThreadsStateService.streamState
+			// 同步流式状态到 Zustand
+			syncStreamStateToStore(threadId, chatThreadsStreamState[threadId])
+			// 保持向后兼容的监听器
 			chatThreadsStreamStateListeners.forEach(l => l(threadId))
 		})
 	)
 
 	settingsState = settingsStateService.state
+	console.log('[services] Initial settingsState.globalSettings.defaultLang:', settingsState.globalSettings.defaultLang)
+	// 等待设置初始化完成后，再初始化默认语言设置（仅首次读取，不联动更新）
+	settingsStateService.waitForInitState.then(() => {
+		console.log('[services] waitForInitState resolved, defaultLang:', settingsStateService.state.globalSettings.defaultLang)
+		initDefaultLang(settingsStateService.state.globalSettings.defaultLang)
+	})
 	globalDisposables.push(
 		settingsStateService.onDidChangeState(() => {
 			settingsState = settingsStateService.state
@@ -432,3 +449,33 @@ export const useIsOptedOut = () => {
 
 	return s
 }
+
+
+// ============ Zustand 细粒度选择器（优化性能） ============
+// 这些 hooks 提供更细粒度的订阅，减少不必要的重渲染
+
+export {
+	// 当前线程
+	useCurrentThreadId,
+	useCurrentThreadMessages,
+	useCurrentThreadStreamState,
+	useCurrentThreadState,
+	useCurrentThreadMessageCount,
+
+	// 特定线程
+	useThreadMessages,
+	useThreadStreamState,
+	useThreadLLMInfo,
+	useThreadMetadata,
+	useThreadState,
+	useThreadMessageCount,
+	useIsThreadRunning,
+
+	// 所有线程
+	useAllThreadMetadata,
+	useRunningThreadIds,
+	useSortedThreadIds,
+
+	// Store 直接访问（用于特殊场景）
+	useChatStore
+} from '../stores/chatStore.js'
