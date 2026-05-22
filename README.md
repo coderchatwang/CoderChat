@@ -70,7 +70,7 @@ Example configuration for a vision-capable model (e.g., Kimi-K2.5):
 
 ## Important Notes
 
-- More than 95% of the code in this project was developed by **CoderChat + GLM5 + MiniMax-M2.7**.
+- More than 95% of the code in this project was developed by **CoderChat + GLM5（JD.com Coding Plan）**.
 - Development configuration for this project can be customized using CoderChat itself. Therefore, the author will not provide separate usage documentation.
 - For documentation related to Void, please refer to the official Void project documentation.
 - Although CoderChat supports local models and arbitrary model configuration via APIs, tests have shown that models without strong agent coding capabilities cannot reliably deliver production-grade results. For recommended models, refer to the coding plan supported model lists from mainstream providers. The primary model used in the development of this project is GLM-5.
