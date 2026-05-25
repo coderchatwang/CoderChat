@@ -17,6 +17,17 @@ CoderChat 基于 Void 开发，是一个增强版本。本仓库保留了 Void �
 
 在你的代码库上使用 AI 智能体，检查点并可视化变更，并将任何模型或主机带到本地。CoderChat 直接向服务提供商发送消息，不会保留你的数据。
 
+
+## 下载 [releases](https://github.com/coderchatwang/CoderChat/releases/)
+
+
+| 平台 |  下载链接 (1.2.1)|
+|----------|---------------|
+| macOS (Apple Silicon) | [CoderChat-macos-arm64.zip](https://github.com/coderchatwang/CoderChat/releases/download/1.2.1/CoderChat-macos-arm64.zip) |
+| macOS (Intel) | [CoderChat-macos-64.zip](https://github.com/coderchatwang/CoderChat/releases/download/1.2.1/CoderChat-macos-64.zip) |
+| Windows (x64) | [CoderChat-windows-64.zip](https://github.com/coderchatwang/CoderChat/releases/download/1.2.1/CoderChat-windows-64.zip) |
+| Windows (ARM64) | [CoderChat-windows-arm64.zip](https://github.com/coderchatwang/CoderChat/releases/download/1.2.1/CoderChat-windows-arm64.zip) |
+
 ## 预览
 
 <div align="center">
