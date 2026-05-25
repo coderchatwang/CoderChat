@@ -9,6 +9,7 @@
 	/>
 </div>
 
+
 ## CoderChat
 
 Like Void, CoderChat is an alternative to tools such as Cursor, Qoder, Trae, and CodeBuddy. It primarily addresses their limitations: inability to freely configure models, opaque pricing, and lack of support for data compliance in special scenarios.
@@ -16,6 +17,18 @@ Like Void, CoderChat is an alternative to tools such as Cursor, Qoder, Trae, and
 CoderChat is developed from Void and serves as an upgraded version. This repository retains all features from Void while providing deep optimizations and continuous feature iteration.
 
 Use AI agents on your codebase, checkpoint and visualize changes, and bring any model or host locally. CoderChat sends messages directly to providers without retaining your data.
+
+
+## Download [releases](https://github.com/coderchatwang/CoderChat/releases/)
+
+
+| Platform |  Download Link (1.2.1)|
+|----------|---------------|
+| macOS (Apple Silicon) | [CoderChat-macos-arm64.zip](https://github.com/coderchatwang/CoderChat/releases/download/1.2.1/CoderChat-macos-arm64.zip) |
+| macOS (Intel) | [CoderChat-macos-64.zip](https://github.com/coderchatwang/CoderChat/releases/download/1.2.1/CoderChat-macos-64.zip) |
+| Windows (x64) | [CoderChat-windows-64.zip](https://github.com/coderchatwang/CoderChat/releases/download/1.2.1/CoderChat-windows-64.zip) |
+| Windows (ARM64) | [CoderChat-windows-arm64.zip](https://github.com/coderchatwang/CoderChat/releases/download/1.2.1/CoderChat-windows-arm64.zip) |
+
 
 ## Preview
 
