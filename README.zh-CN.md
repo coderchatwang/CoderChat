@@ -21,12 +21,12 @@ CoderChat 基于 Void 开发，是一个增强版本。本仓库保留了 Void �
 ## 下载 [releases](https://github.com/coderchatwang/CoderChat/releases/)
 
 
-| 平台 |  下载链接 (1.2.1)|
+| 平台 |  下载链接 (1.2.2)|
 |----------|---------------|
-| macOS (Apple Silicon) | [CoderChat-macos-arm64.zip](https://github.com/coderchatwang/CoderChat/releases/download/1.2.1/CoderChat-macos-arm64.zip) |
-| macOS (Intel) | [CoderChat-macos-64.zip](https://github.com/coderchatwang/CoderChat/releases/download/1.2.1/CoderChat-macos-64.zip) |
-| Windows (x64) | [CoderChat-windows-64.zip](https://github.com/coderchatwang/CoderChat/releases/download/1.2.1/CoderChat-windows-64.zip) |
-| Windows (ARM64) | [CoderChat-windows-arm64.zip](https://github.com/coderchatwang/CoderChat/releases/download/1.2.1/CoderChat-windows-arm64.zip) |
+| macOS (Apple Silicon) | [CoderChat-macos-arm64.zip](https://github.com/coderchatwang/CoderChat/releases/download/1.2.2/CoderChat-macos-arm64.zip) |
+| macOS (Intel) | [CoderChat-macos-64.zip](https://github.com/coderchatwang/CoderChat/releases/download/1.2.2/CoderChat-macos-64.zip) |
+| Windows (x64) | [CoderChat-windows-64.zip](https://github.com/coderchatwang/CoderChat/releases/download/1.2.2/CoderChat-windows-64.zip) |
+| Windows (ARM64) | [CoderChat-windows-arm64.zip](https://github.com/coderchatwang/CoderChat/releases/download/1.2.2/CoderChat-windows-arm64.zip) |
 
 ## 预览
 
