@@ -22,12 +22,12 @@ Use AI agents on your codebase, checkpoint and visualize changes, and bring any 
 ## Download [releases](https://github.com/coderchatwang/CoderChat/releases/)
 
 
-| Platform |  Download Link (1.2.1)|
+| Platform |  Download Link (1.2.2)|
 |----------|---------------|
-| macOS (Apple Silicon) | [CoderChat-macos-arm64.zip](https://github.com/coderchatwang/CoderChat/releases/download/1.2.1/CoderChat-macos-arm64.zip) |
-| macOS (Intel) | [CoderChat-macos-64.zip](https://github.com/coderchatwang/CoderChat/releases/download/1.2.1/CoderChat-macos-64.zip) |
-| Windows (x64) | [CoderChat-windows-64.zip](https://github.com/coderchatwang/CoderChat/releases/download/1.2.1/CoderChat-windows-64.zip) |
-| Windows (ARM64) | [CoderChat-windows-arm64.zip](https://github.com/coderchatwang/CoderChat/releases/download/1.2.1/CoderChat-windows-arm64.zip) |
+| macOS (Apple Silicon) | [CoderChat-macos-arm64.zip](https://github.com/coderchatwang/CoderChat/releases/download/1.2.2/CoderChat-macos-arm64.zip) |
+| macOS (Intel) | [CoderChat-macos-64.zip](https://github.com/coderchatwang/CoderChat/releases/download/1.2.2/CoderChat-macos-64.zip) |
+| Windows (x64) | [CoderChat-windows-64.zip](https://github.com/coderchatwang/CoderChat/releases/download/1.2.2/CoderChat-windows-64.zip) |
+| Windows (ARM64) | [CoderChat-windows-arm64.zip](https://github.com/coderchatwang/CoderChat/releases/download/1.2.2/CoderChat-windows-arm64.zip) |
 
 
 ## Preview
