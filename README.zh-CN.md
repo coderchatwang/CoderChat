@@ -23,10 +23,10 @@ CoderChat 基于 Void 开发，是一个增强版本。本仓库保留了 Void �
 
 | 平台 |  下载链接 (1.2.2)|  备注 |
 |----------|---------------|---------------|
-| macOS (Apple Silicon) | [CoderChat-macos-arm64.zip](https://github.com/coderchatwang/CoderChat/releases/download/1.2.2/CoderChat-macos-arm64.zip) | .app未签名，拦截安装为系统默认行为,若拦截需安装时自行处理签名问题|
-| macOS (Intel) | [CoderChat-macos-64.zip](https://github.com/coderchatwang/CoderChat/releases/download/1.2.2/CoderChat-macos-64.zip) |.app未签名，拦截安装为系统默认行为,若拦截需安装时自行处理签名问题|
-| Windows (x64) | [CoderChatSetup-x64-user.exe](https://github.com/coderchatwang/CoderChat/releases/download/1.2.2/CoderChatSetup-x64-user.exe) <br> [CoderChatSetup-x64-system.exe](https://github.com/coderchatwang/CoderChat/releases/download/1.2.2/CoderChatSetup-x64-system.exe) <br> [CoderChat-windows-64.zip](https://github.com/coderchatwang/CoderChat/releases/download/1.2.2/CoderChat-windows-64.zip) |exe安装包版本未签名，拦截安装为系统默认行为|
-| Windows (ARM64) | [CoderChatSetup-arm64-user.exe](https://github.com/coderchatwang/CoderChat/releases/download/1.2.2/CoderChatSetup-arm64-user.exe) <br> [CoderChatSetup-arm64-system.exe](https://github.com/coderchatwang/CoderChat/releases/download/1.2.2/CoderChatSetup-arm64-system.exe) <br> [CoderChat-windows-arm64.zip](https://github.com/coderchatwang/CoderChat/releases/download/1.2.2/CoderChat-windows-arm64.zip) |exe安装包版本未签名，拦截安装为系统默认行为|
+| macOS (Apple Silicon) | [CoderChat-darwin-arm64.dmg](https://github.com/coderchatwang/CoderChat/releases/download/1.2.2/CoderChat-darwin-arm64.dmg) <br> [CoderChat-macos-arm64.zip](https://github.com/coderchatwang/CoderChat/releases/download/1.2.2/CoderChat-macos-arm64.zip) | 未签名，若安装被拦截需信任后打开|
+| macOS (Intel) | [CoderChat-darwin-x64.dmg](https://github.com/coderchatwang/CoderChat/releases/download/1.2.2/CoderChat-darwin-x64.dmg) <br>  [CoderChat-macos-64.zip](https://github.com/coderchatwang/CoderChat/releases/download/1.2.2/CoderChat-macos-64.zip) |未签名，若安装被拦截需信任后打开|
+| Windows (x64) | [CoderChatSetup-x64-user.exe](https://github.com/coderchatwang/CoderChat/releases/download/1.2.2/CoderChatSetup-x64-user.exe) <br> [CoderChatSetup-x64-system.exe](https://github.com/coderchatwang/CoderChat/releases/download/1.2.2/CoderChatSetup-x64-system.exe) <br> [CoderChat-windows-64.zip](https://github.com/coderchatwang/CoderChat/releases/download/1.2.2/CoderChat-windows-64.zip) |未签名，若拦截为系统默认行为|
+| Windows (ARM64) | [CoderChatSetup-arm64-user.exe](https://github.com/coderchatwang/CoderChat/releases/download/1.2.2/CoderChatSetup-arm64-user.exe) <br> [CoderChatSetup-arm64-system.exe](https://github.com/coderchatwang/CoderChat/releases/download/1.2.2/CoderChatSetup-arm64-system.exe) <br> [CoderChat-windows-arm64.zip](https://github.com/coderchatwang/CoderChat/releases/download/1.2.2/CoderChat-windows-arm64.zip) |未签名，若拦截为系统默认行为|
 
 提示:安装包签名问题因需要长期支付证书费用，开发者暂无力解决，请用户自行处理信任即可，开发作者只保证本仓库安装包的安全可靠无毒，请勿从本仓库外任何链接下载安装本软件
 
