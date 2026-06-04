@@ -133,6 +133,7 @@ CoderChat 基于 Void 开发，是一个增强版本。本仓库保留了 Void �
 
 - CoderChat 是 [Void](https://github.com/voideditor/void/tree/main) 的一个分支。
 - Void 是 [vscode](https://github.com/microsoft/vscode) 仓库的一个分支。
+- [iFlow CLI](https://github.com/iflow-ai/iflow-cli) 是一款直接在终端中运行的强大 AI 助手
 
 ## 许可证
 
