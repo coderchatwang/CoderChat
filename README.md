@@ -7,6 +7,7 @@
 		width="300"
 	 	height="300"
 	/>
+   <h3>Match the best agent technology in usability, say no to token markup, and enjoy the magic of AI programming at minimal token cost</h3>
 </div>
 
 
@@ -40,6 +41,17 @@ Use AI agents on your codebase, checkpoint and visualize changes, and bring any 
 	 	alt="chat"
 	/>
 </div>
+
+## Cost Overview
+
+| Recommended Access Method | Pricing Model | Remarks | Monthly Cost Estimate (CNY) | Monthly Cost Estimate (USD*) |
+| :--- | :--- | :--- | :--- | :--- |
+| **Coding Plan (JD, GLM, etc.)** | Fixed monthly fee | ¥40/month, includes 18,000 API calls, generally more than enough | **¥40** | **≈ $5.56** |
+| **DeepSeek V4 Pro, etc.** | Pay per token | Pay as you go, no charge when not in use. See official website for details | **≥0** | **≥$0** |
+| **Local Model** | None | Not recommended, may produce poor results | **0** | **$0** |
+| **API Relay (accessible but not recommended)** | Unknown | **Unreliable API relays may pose a man‑in‑the‑middle attack risk – not caused by this software!!** | **≥0** | **≥$0** |
+
+> *Note: This software is free. Costs shown are official prices from compute providers. USD estimates are based on approximate exchange rates; please refer to real‑time rates.*
 
 ## CoderChat and Void are both based on VS Code. Why not just use Void or VS Code directly?
 Unfortunately, the Void project has been discontinued. Based on Void and VS Code, we have made a significant number of updates and will continue to optimize and improve.
