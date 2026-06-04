@@ -34,7 +34,7 @@ CoderChat 基于 Void 开发，是一个增强版本。本仓库保留了 Void �
 
 <div align="center">
 	<img
-		src="./doc/imgs/chat.png"
+		src="https://github.com/coderchatwang/CoderChat/releases/download/1.0.0/chat.png"
 	 	alt="聊天界面"
 	/>
 </div>
