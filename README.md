@@ -41,9 +41,50 @@ Use AI agents on your codebase, checkpoint and visualize changes, and bring any 
 	/>
 </div>
 
+## CoderChat and Void are both based on VS Code. Why not just use Void or VS Code directly?
+Unfortunately, the Void project has been discontinued. Based on Void and VS Code, we have made a significant number of updates and will continue to optimize and improve.
+
+| Feature | CoderChat | Void |
+|---------|-----------|------|
+| Proper light theme support | ✔️ | ❌ |
+| Display creation time for chat messages | ✔️ | ❌ |
+| Support for deleting individual items from recent projects/file list | ✔️ | ❌ |
+| Global proxy configuration for chat (Anthropic, Google SDK) | ✔️ | ❌ |
+| Compatibility with Anthropic-style system messages | ✔️ | ❌ |
+| Exit confirmation prompt on Windows platform | ✔️ | ❌ |
+| Internationalized Chinese support in chat | ✔️ | ❌ |
+| Real-time cross-window session data synchronization | ✔️ | ❌ |
+| Native Anthropic SDK call support | ✔️ | ❌ |
+| Markdown caching (improved rendering performance) | ✔️ | ❌ |
+| Language selection for AI replies in new user onboarding | ✔️ | ❌ |
+| Support for AGENTS.md configuration file | ✔️ | ❌ |
+| Filter conversation threads by project | ✔️ | ❌ |
+| Quick confirmation for Gather mode execution | ✔️ | ❌ |
+| Enhanced Gather mode prompts | ✔️ | ❌ |
+| Dependency updates aligned with the latest VS Code version, delivering a performance leap | ✔️ | ❌ |
+| More professional system prompts | ✔️ | ❌ |
+| Paginated loading of historical messages | ✔️ | ❌ |
+| Vision model support | ✔️ | ❌ |
+| ask_user_question tool support | ✔️ | ❌ |
+| xml_escape tool support | ✔️ | ❌ |
+| Pre-configured 10 general API providers | ✔️ | ❌ |
+| showJsonDebug toggle (for debugging JSON display) | ✔️ | ❌ |
+| Display role and model information | ✔️ | ❌ |
+| Display retry errors and optimized retry logic in UI | ✔️ | ❌ |
+| Show source URL for OpenAI Compatible | ✔️ | ❌ |
+| ... |  |  |
+| Ongoing bug fixing capabilities | ✔️ | ❌ |
+| Continuous feature updates and support | ✔️ | ❌ |
 ## Usage & Configuration
 
 > **Important**: The values of `contextWindow` and `reservedOutputTokenSpace` must be configured according to the specific model you are using. Additionally, `specialToolFormat` must be set correctly; otherwise, unexpected issues may occur. Supported values for `specialToolFormat` are `'openai-style'`, `'anthropic-style'`, and `'gemini-style'`. If left empty, it defaults to `'openai-style'`.
+
+<div align="center">
+	<img
+		src="https://github.com/coderchatwang/CoderChat/releases/download/1.0.0/config.png"
+	 	alt="chat"
+	/>
+</div>
 
 Below is the configuration reference for the GLM-5 model:
 
