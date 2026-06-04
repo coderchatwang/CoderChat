@@ -135,6 +135,7 @@ Example configuration for a vision-capable model (e.g., Kimi-K2.5):
 
 - CoderChat is a fork of [Void](https://github.com/voideditor/void/tree/main).
 - Void is a fork of the [vscode](https://github.com/microsoft/vscode) repository.
+- [iFlow CLI](https://github.com/iflow-ai/iflow-cli) is a comprehensive command-line intelligence that embeds in your terminal
 
 ## License
 
