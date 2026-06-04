@@ -39,9 +39,50 @@ CoderChat 基于 Void 开发，是一个增强版本。本仓库保留了 Void �
 	/>
 </div>
 
+## CoderChat和Void都是基于VsCode，为什么不直接使用Void或者VsCode？
+很遗憾Void项目已经停更，我们在Void和VsCode的基础上做了大量更新，并且还将继续不断优化更新。
+| 支持| CoderChat  | Void  |
+|------|----------------|-----------|
+| 正常使用浅色主题 | ✔️ | ❌ |
+| 聊天消息显示创建时间 | ✔️ | ❌ |
+| 最近项目/文件列表单项删除支持 | ✔️ | ❌ |
+| 聊天区支持全局代理配置设置（Anthropic、Google SDK） | ✔️ | ❌ |
+| anthropic 风格系统消息兼容 | ✔️ | ❌ |
+| Windows 平台退出前关闭提示 | ✔️ | ❌ |
+| 聊天器国际化中文支持 | ✔️ | ❌ |
+| 跨窗口会话数据实时同步 | ✔️ | ❌ |
+| 原生 Anthropic SDK 调用支持| ✔️ | ❌ |
+| Markdown 缓存（提升渲染性能） | ✔️ | ❌ |
+| 新用户引导页面AI 回复语言选择 | ✔️ | ❌ |
+| 支持 AGENTS.md 配置文件 | ✔️ | ❌ |
+| 按项目过滤对话线程 | ✔️ | ❌ |
+| Gather 模式执行快速确认 | ✔️ | ❌ |
+| 增强 Gather 模式提示 | ✔️ | ❌ |
+| 依赖库升级与 VS Code 最新版对齐 ，使用性能跃迁| ✔️ | ❌ |
+| 更专业的系统提示词 | ✔️ | ❌ |
+| 历史消息分页加载 | ✔️ | ❌ |
+| 视觉模型支持 | ✔️ | ❌ |
+| ask_user_question 工具支持 | ✔️ | ❌ |
+| xml_escape 工具支持 | ✔️ | ❌ |
+| 提供10个通用API提供商配置 | ✔️ | ❌ |
+| showJsonDebug 切换（调试 JSON 显示） | ✔️ | ❌ |
+| 显示角色与模型信息 | ✔️ | ❌ |
+| 界面显示重试错误并优化重试逻辑 | ✔️ | ❌ |
+| OpenAI Compatible 显示来源 URL | ✔️ | ❌ |
+| ... |  |  |
+| 持续的BUG修复能力... | ✔️ | ❌ |
+| 持续的功能支持更新能力... | ✔️ | ❌ |
+
 ## 使用方法与配置
 
 > **重要**：`contextWindow` 和 `reservedOutputTokenSpace` 的值必须根据你所使用的具体模型进行配置。此外，`specialToolFormat` 必须正确设置，否则可能会出现意外问题。`specialToolFormat` 支持的值包括 `'openai-style'`、`'anthropic-style'` 和 `'gemini-style'`。如果留空，默认为 `'openai-style'`。
+
+<div align="center">
+	<img
+		src="https://github.com/coderchatwang/CoderChat/releases/download/1.0.0/config.png"
+	 	alt="chat"
+	/>
+</div>
 
 以下是 GLM-5 模型的配置参考：
 
