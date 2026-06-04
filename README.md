@@ -22,12 +22,14 @@ Use AI agents on your codebase, checkpoint and visualize changes, and bring any 
 ## Download [releases](https://github.com/coderchatwang/CoderChat/releases/)
 
 
-| Platform |  Download Link (1.2.2)|
-|----------|---------------|
-| macOS (Apple Silicon) | [CoderChat-macos-arm64.zip](https://github.com/coderchatwang/CoderChat/releases/download/1.2.2/CoderChat-macos-arm64.zip) |
-| macOS (Intel) | [CoderChat-macos-64.zip](https://github.com/coderchatwang/CoderChat/releases/download/1.2.2/CoderChat-macos-64.zip) |
-| Windows (x64) | [CoderChat-windows-64.zip](https://github.com/coderchatwang/CoderChat/releases/download/1.2.2/CoderChat-windows-64.zip) |
-| Windows (ARM64) | [CoderChat-windows-arm64.zip](https://github.com/coderchatwang/CoderChat/releases/download/1.2.2/CoderChat-windows-arm64.zip) |
+| Platform | Download Links (1.2.2) | Remarks |
+|----------|------------------------|---------|
+| macOS (Apple Silicon) | [CoderChat-macos-arm64.zip](https://github.com/coderchatwang/CoderChat/releases/download/1.2.2/CoderChat-macos-arm64.zip) | The .app is unsigned; blocking installation is the system default behavior. If blocked, you need to handle the signing issue yourself during installation. |
+| macOS (Intel) | [CoderChat-macos-64.zip](https://github.com/coderchatwang/CoderChat/releases/download/1.2.2/CoderChat-macos-64.zip) | The .app is unsigned; blocking installation is the system default behavior. If blocked, you need to handle the signing issue yourself during installation. |
+| Windows (x64) | [CoderChatSetup-x64-user.exe](https://github.com/coderchatwang/CoderChat/releases/download/1.2.2/CoderChatSetup-x64-user.exe) <br> [CoderChatSetup-x64-system.exe](https://github.com/coderchatwang/CoderChat/releases/download/1.2.2/CoderChatSetup-x64-system.exe) <br> [CoderChat-windows-64.zip](https://github.com/coderchatwang/CoderChat/releases/download/1.2.2/CoderChat-windows-64.zip) | The exe installer is unsigned; blocking installation is the system default behavior. |
+| Windows (ARM64) | [CoderChatSetup-arm64-user.exe](https://github.com/coderchatwang/CoderChat/releases/download/1.2.2/CoderChatSetup-arm64-user.exe) <br> [CoderChatSetup-arm64-system.exe](https://github.com/coderchatwang/CoderChat/releases/download/1.2.2/CoderChatSetup-arm64-system.exe) <br> [CoderChat-windows-arm64.zip](https://github.com/coderchatwang/CoderChat/releases/download/1.2.2/CoderChat-windows-arm64.zip) | The exe installer is unsigned; blocking installation is the system default behavior. |
+
+**Note:** Due to the need for long-term payment of certificate fees, the developer is currently unable to resolve the installer signing issue. Please handle the trust issue yourself. The developer only guarantees that the installers in this repository are safe, reliable, and virus-free. Do not download or install this software from any links outside this repository.
 
 
 ## Preview
