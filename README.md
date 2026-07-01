@@ -23,12 +23,12 @@ Use AI agents on your codebase, checkpoint and visualize changes, and bring any 
 ## Download [releases](https://github.com/coderchatwang/CoderChat/releases/)
 
 
-| Platform | Download Links (1.2.3) | Notes |
+| Platform | Download Links (1.3.0) | Notes |
 |----------|------------------------|-------|
-| macOS (Apple Silicon) | [CoderChat-darwin-arm64.dmg](https://github.com/coderchatwang/CoderChat/releases/download/1.2.3/CoderChat-darwin-arm64.dmg) | Unsigned; if installation is blocked, you need to trust it before opening |
-| macOS (Intel) | [CoderChat-darwin-x64.dmg](https://github.com/coderchatwang/CoderChat/releases/download/1.2.3/CoderChat-darwin-x64.dmg) | Unsigned; if installation is blocked, you need to trust it before opening |
-| Windows (x64) | [CoderChatSetup-x64-user.exe](https://github.com/coderchatwang/CoderChat/releases/download/1.2.3/CoderChatSetup-x64-user.exe) <br> [CoderChatSetup-x64-system.exe](https://github.com/coderchatwang/CoderChat/releases/download/1.2.3/CoderChatSetup-x64-system.exe) | Unsigned; if blocked, it is a system default behavior |
-| Windows (ARM64) | [CoderChatSetup-arm64-user.exe](https://github.com/coderchatwang/CoderChat/releases/download/1.2.3/CoderChatSetup-arm64-user.exe) <br> [CoderChatSetup-arm64-system.exe](https://github.com/coderchatwang/CoderChat/releases/download/1.2.3/CoderChatSetup-arm64-system.exe)  | Unsigned; if blocked, it is a system default behavior |
+| macOS (Apple Silicon) | [CoderChat-darwin-arm64.dmg](https://github.com/coderchatwang/CoderChat/releases/download/1.3.0/CoderChat-darwin-arm64.dmg) | Unsigned; if installation is blocked, you need to trust it before opening |
+| macOS (Intel) | [CoderChat-darwin-x64.dmg](https://github.com/coderchatwang/CoderChat/releases/download/1.3.0/CoderChat-darwin-x64.dmg) | Unsigned; if installation is blocked, you need to trust it before opening |
+| Windows (x64) | [CoderChatSetup-x64-user.exe](https://github.com/coderchatwang/CoderChat/releases/download/1.3.0/CoderChatSetup-x64-user.exe) <br> [CoderChatSetup-x64-system.exe](https://github.com/coderchatwang/CoderChat/releases/download/1.3.0/CoderChatSetup-x64-system.exe) | Unsigned; if blocked, it is a system default behavior |
+| Windows (ARM64) | [CoderChatSetup-arm64-user.exe](https://github.com/coderchatwang/CoderChat/releases/download/1.3.0/CoderChatSetup-arm64-user.exe) <br> [CoderChatSetup-arm64-system.exe](https://github.com/coderchatwang/CoderChat/releases/download/1.3.0/CoderChatSetup-arm64-system.exe)  | Unsigned; if blocked, it is a system default behavior |
 
 **Note:** Due to the need for long-term payment of certificate fees, the developer is currently unable to resolve the installer signing issue. Please handle the trust issue yourself. The developer only guarantees that the installers in this repository are safe, reliable, and virus-free. Do not download or install this software from any links outside this repository.
 
