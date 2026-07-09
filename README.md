@@ -17,7 +17,7 @@ Like Void, CoderChat is an alternative to tools such as Cursor, Qoder, Trae, and
 
 CoderChat is developed from Void and serves as an upgraded version. This repository retains all features from Void while providing deep optimizations and continuous feature iteration.
 
-Use AI agents on your codebase, checkpoint and visualize changes, and bring any model or host locally. CoderChat sends messages directly to providers without retaining your data.
+Use AI agents on your codebase, visualize changes, and bring any model or host locally. **Up to now, even when users use custom models, mainstream commercial paid/free AI editors almost all implement prompt assembly logic on the server side, meaning that user data such as code undergoes a secondary relay through the tool vendor, with no confidentiality or privacy whatsoever.** CoderChat sends messages directly to the model service provider and does not retain or view your code data. This is one of the values that CoderChat offers compared to fully-featured commercial projects.
 
 
 ## Download [releases](https://github.com/coderchatwang/CoderChat/releases/)
