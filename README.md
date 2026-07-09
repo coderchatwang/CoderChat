@@ -146,6 +146,8 @@ Example configuration for a vision-capable model (e.g., Kimi-K2.5):
 - For documentation related to Void, please refer to the official Void project documentation.
 - Although CoderChat supports local models and arbitrary model configuration via APIs, tests have shown that models without strong agent coding capabilities cannot reliably deliver production-grade results. For recommended models, refer to the coding plan supported model lists from mainstream providers. The primary model used in the development of this project is GLM-5.
 
+## Disclaimer
+
 ## Reference
 
 - CoderChat is a fork of [Void](https://github.com/voideditor/void/tree/main).
@@ -155,3 +157,16 @@ Example configuration for a vision-capable model (e.g., Kimi-K2.5):
 ## License
 
 This project is licensed under the **Apache License 2.0**. See the [LICENSE](LICENSE) file for details.
+
+**This project is intended solely for educational and self-study purposes.**
+
+Some of the enhanced prompts and prompt-engineering methodologies used in this project draw upon publicly available online materials and the design of outstanding commercial projects (for learning reference only, and not for commercial use). The relevant designs are applicable only in educational and self-study contexts.
+
+If you plan to use this project for **commercial purposes**, you are required to:
+- Modify or redesign the relevant prompts and methodologies on your own;
+- Carefully review the other functionalities of this project to verify that they comply with the laws, regulations, and compliance requirements applicable in your jurisdiction and commercial scenario;
+- Bear all legal risks and liabilities arising from any infringement on your own.
+
+This project is a **purely public-interest sharing** initiative aimed at fostering technological exchange and learning. The project developer (and all contributors) assume no legal liability for any direct or indirect losses, legal disputes, infringement claims, or third-party claims arising from the use of this project (including but not limited to prompts, methodologies, output results, etc.).
+
+By using this project, you signify that you have read, understood, and agreed to all the contents of this disclaimer.
