@@ -181,7 +181,7 @@ class BrowserWebSocket extends Disposable implements IWebSocket {
 		}));
 	}
 
-	send(data: ArrayBuffer | ArrayBufferView): void {
+	send(data: ArrayBuffer | ArrayBufferView<ArrayBuffer>): void {
 		if (this._isClosed) {
 			// Refuse to write data to closed WebSocket...
 			return;

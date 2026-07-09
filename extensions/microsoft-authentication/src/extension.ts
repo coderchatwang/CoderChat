@@ -74,7 +74,7 @@ export async function activate(context: ExtensionContext) {
 		}
 	}));
 	// Only activate the new extension if we are not running in a browser environment
-	if (useMsal && typeof navigator === 'undefined') {
+	if (useMsal && typeof (globalThis as any).navigator === 'undefined') {
 		await extensionV2.activate(context, mainTelemetryReporter);
 	} else {
 		await extensionV1.activate(context, mainTelemetryReporter.telemetryReporter);

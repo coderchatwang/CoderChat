@@ -22,6 +22,7 @@ import { os } from '../helpers/systemInfo.js';
 import { RawToolParamsObj } from '../sendLLMMessageTypes.js';
 import { approvalTypeOfBuiltinToolName, BuiltinToolCallParams, BuiltinToolName, BuiltinToolResultType, ToolName } from '../toolsServiceTypes.js';
 import { ChatMode } from '../voidSettingsTypes.js';
+import { SkillInfo } from '../skillServiceTypes.js';
 
 // 代码块的三反引号标记
 export const tripleTick = ['```', '```']
@@ -169,6 +170,7 @@ ${tripleTick[0]}typescript
 // ... existing code ...
 // {{change 3}}
 // ... existing code ...
+// Note: If there is too much existing code, use ellipsis to replace non‑critical existing code,and avoid showing all of the existing code unless necessary.
 ${tripleTick[1]}`
 
 
@@ -504,7 +506,8 @@ export const builtinTools: {
 		description: `Extract and processes content from a URL according to the user's prompt, including local and private network addresses (e.g., localhost).`,
 		params: {
 			url: { description: 'The URL to fetch (must start with http:// or https://).' },
-			prompt: { description: 'Instructions on how to process the fetched content (e.g., "Summarize the article and extract key points").' }
+			prompt: { description: 'Instructions on how to process the fetched content (e.g., "Summarize the article and extract key points").' },
+			strip_html: { description: 'Optional. If true, removes HTML tags and returns plain text content using html-to-text library. Default is false.' }
 		}
 	},
 
@@ -550,6 +553,45 @@ Usage:
 - Use this information to track progress and plan next steps
 - If no todos exist yet, an empty list will be returned`,
 		params: {}
+	},
+
+	sleep_wait: {//21
+		name: 'sleep_wait',
+		description: `Use this tool when you need to sleep and wait for a period of time until a target resource becomes available or a previous operation completes before proceeding to the next step. The minimum wait time is 1 second, and the maximum is 600 seconds. Note that this tool only handles sleeping and waiting; after the wait ends, you need to actively call other tools to check the status of the target resource or the execution result of the previous step. For example, when you need to wait for a time-consuming console execution result, you can first call this tool to sleep for 10 seconds, and after this tool finishes, you can then call a tool to check whether the console has finished executing.`,
+		params: {
+			seconds: { description: 'The number of seconds to wait. Minimum: 1, Maximum: 600.' }
+		}
+	},
+
+	skill: {//22
+		name: 'skill',
+		description: `Execute a skill within the main conversation
+
+<skills_instructions>
+When users ask you to perform tasks, check if any of the available skills below can help complete the task more effectively. Skills provide specialized capabilities and domain knowledge.
+
+How to invoke:
+- Use this tool with the skill name only (no arguments)
+- Examples:
+  - \`skill: "pdf"\` - invoke the pdf skill
+  - \`skill: "xlsx"\` - invoke the xlsx skill
+  - \`skill: "ms-office-suite:pdf"\` - invoke using fully qualified name
+
+Important:
+- When a skill is relevant, you must invoke this tool IMMEDIATELY as your first action
+- NEVER just announce or mention a skill in your text response without actually calling this tool
+- This is a BLOCKING REQUIREMENT: invoke the relevant Skill tool BEFORE generating any other response about the task
+- Only use skills listed in <available_skills> below
+- Do not invoke a skill that is already running
+- Do not use this tool for built-in CLI commands (like /help, /clear, etc.)
+</skills_instructions>
+
+<available_skills>
+{{SKILLS_LIST}}
+</available_skills>`,
+		params: {
+			skill: { description: 'The skill name (no arguments). E.g., "pdf" or "xlsx"' }
+		}
 	}
 
 } satisfies { [T in keyof BuiltinToolResultType]: InternalToolInfo }
@@ -579,16 +621,35 @@ export const isABuiltinToolName = (toolName: string): toolName is BuiltinToolNam
  *
  * @param chatMode - 聊天模式 ('normal' | 'gather' | 'agent' | null)
  * @param mcpTools - MCP 工具列表（可选）
+ * @param skillDescriptionWithSkills - 包含 skills 列表的 skill 工具描述（可选，如果包含 "No skills available." 则排除 skill 工具）
  * @returns 可用的工具列表，如果无工具则返回 undefined
  */
-export const availableTools = (chatMode: ChatMode | null, mcpTools: InternalToolInfo[] | undefined) => {
+export const availableTools = (chatMode: ChatMode | null, mcpTools: InternalToolInfo[] | undefined, skillDescriptionWithSkills?: string) => {
 
 	const builtinToolNames: BuiltinToolName[] | undefined = chatMode === 'normal' ? undefined
 		: chatMode === 'gather' ? (Object.keys(builtinTools) as BuiltinToolName[]).filter(toolName => !(toolName in approvalTypeOfBuiltinToolName))
 			: chatMode === 'agent' ? Object.keys(builtinTools) as BuiltinToolName[]
 				: undefined
 
-	const effectiveBuiltinTools = builtinToolNames?.map(toolName => builtinTools[toolName]) ?? undefined
+	// 判断是否有 skills：检查 skillDescriptionWithSkills 是否包含 "No skills available."
+	const hasSkills = skillDescriptionWithSkills && !skillDescriptionWithSkills.includes('No skills available.')
+
+	const effectiveBuiltinTools = builtinToolNames?.filter(toolName => {
+		// 如果没有 skills，排除 skill 工具
+		if (toolName === 'skill' && !hasSkills) {
+			return false
+		}
+		return true
+	}).map(toolName => {
+		// 如果是 skill 工具且有自定义描述，使用自定义描述
+		if (toolName === 'skill' && skillDescriptionWithSkills) {
+			return {
+				...builtinTools[toolName],
+				description: skillDescriptionWithSkills
+			}
+		}
+		return builtinTools[toolName]
+	}) ?? undefined
 	const effectiveMCPTools = chatMode === 'agent' ? mcpTools : undefined
 
 	const tools: InternalToolInfo[] | undefined = !(builtinToolNames || mcpTools) ? undefined
@@ -632,6 +693,12 @@ const paramSchemaToDescription = (schema: ParamSchema, indent: string = ''): str
  * 将工具列表格式化为 XML 格式的提示词
  */
 const toolCallDefinitionsXMLString = (tools: InternalToolInfo[]) => {
+	console.log('[toolCallDefinitionsXMLString] tools:', tools.map(t => t.name))
+	const skillTool = tools.find(t => t.name === 'skill')
+	if (skillTool) {
+		console.log('[toolCallDefinitionsXMLString] skill tool description contains SKILLS_LIST:', skillTool.description.includes('{{SKILLS_LIST}}'))
+		console.log('[toolCallDefinitionsXMLString] skill tool description preview:', skillTool.description.substring(0, 300))
+	}
 	return `${tools.map((t, i) => {
 		const params = Object.keys(t.params).map(paramName => {
 			const schema = t.params[paramName]
@@ -659,14 +726,41 @@ export const reParsedToolXMLString = (toolName: ToolName, toolParams: RawToolPar
 }
 
 /**
+ * 生成 skill 列表的 XML 字符串
+ */
+export const generateSkillsListXML = (skills: SkillInfo[] | undefined): string => {
+	if (!skills || skills.length === 0) {
+		return 'No skills available.'
+	}
+	return skills.map(skill => `<skill>
+<name>
+${skill.name}
+</name>
+<description>
+${skill.description}
+</description>
+<location>
+${skill.location}
+</location>
+</skill>`).join('\n')
+}
+
+/**
  * 生成工具调用的 XML 提示词
  *
  * @param chatMode - 聊天模式
  * @param mcpTools - MCP 工具列表
+ * @param skills - Skill 列表
  * @returns 工具调用的 XML 格式提示词，如果无工具则返回 null
  */
-const systemToolsXMLPrompt = (chatMode: ChatMode, mcpTools: InternalToolInfo[] | undefined) => {
-	const tools = availableTools(chatMode, mcpTools)
+const systemToolsXMLPrompt = (chatMode: ChatMode, mcpTools: InternalToolInfo[] | undefined, skills: SkillInfo[] | undefined) => {
+	console.log('[systemToolsXMLPrompt] skills:', skills?.length, skills?.map(s => s.name))
+	// 始终替换 skill 工具描述中的占位符
+	const skillsListXML = generateSkillsListXML(skills)
+	console.log('[systemToolsXMLPrompt] skillsListXML:', skillsListXML.substring(0, 200))
+	const skillDescriptionWithSkills = builtinTools.skill.description.replace('{{SKILLS_LIST}}', skillsListXML)
+
+	const tools = availableTools(chatMode, mcpTools, skillDescriptionWithSkills)
 	if (!tools || tools.length === 0) return null
 
 	const toolXMLDefinitions = (`\
@@ -704,7 +798,7 @@ const systemToolsXMLPrompt = (chatMode: ChatMode, mcpTools: InternalToolInfo[] |
  * @param params.includeXMLToolDefinitions - 是否包含 XML 工具定义
  * @returns 完整的系统消息字符串
  */
-export const chat_systemMessage = ({ workspaceFolders, openedURIs, activeURI, persistentTerminalIDs, directoryStr, chatMode: mode, mcpTools, includeXMLToolDefinitions, platform, osVersion, isGitRepository, gitRemoteUrl, gitHeadSha, gitStatus }: { workspaceFolders: string[], directoryStr: string, openedURIs: string[], activeURI: string | undefined, persistentTerminalIDs: string[], chatMode: ChatMode, mcpTools: InternalToolInfo[] | undefined, includeXMLToolDefinitions: boolean, platform?: string, osVersion?: string, isGitRepository?: boolean, gitRemoteUrl?: string, gitHeadSha?: string, gitStatus?: string }) => {
+export const chat_systemMessage = ({ workspaceFolders, openedURIs, activeURI, persistentTerminalIDs, directoryStr, chatMode: mode, mcpTools, includeXMLToolDefinitions, platform, osVersion, isGitRepository, gitRemoteUrl, gitHeadSha, gitStatus, skills }: { workspaceFolders: string[], directoryStr: string, openedURIs: string[], activeURI: string | undefined, persistentTerminalIDs: string[], chatMode: ChatMode, mcpTools: InternalToolInfo[] | undefined, includeXMLToolDefinitions: boolean, platform?: string, osVersion?: string, isGitRepository?: boolean, gitRemoteUrl?: string, gitHeadSha?: string, gitStatus?: string, skills?: SkillInfo[] }) => {
 	const header = (`You are an expert coding ${mode === 'agent' ? 'agent' : 'assistant'} whose job is \
 ${mode === 'agent' ? `to help the user develop, run, and make changes to their codebase.`
 			: mode === 'gather' ? `to search, understand, and reference files in the user's codebase.`
@@ -986,7 +1080,7 @@ ${directoryStr}
 </files_overview>`)
 
 
-	const toolDefinitions = includeXMLToolDefinitions ? systemToolsXMLPrompt(mode, mcpTools) : null
+	const toolDefinitions = includeXMLToolDefinitions ? systemToolsXMLPrompt(mode, mcpTools, skills) : null
 
 	const details: string[] = []
 
@@ -999,6 +1093,7 @@ ${directoryStr}
 		details.push('Only use ONE tool call at a time.')
 		details.push(`NEVER say something like "I'm going to use \`tool_name\`". Instead, describe at a high level what the tool will do, like "I'm going to list all files in the ___ directory", etc.`)
 		details.push(`Many tools only work if the user has a workspace open.`)
+		details.push('You must think through every step clearly, and not take any shortcuts.')
 	}
 	else {
 		details.push(`You're allowed to ask the user for more context like file contents or specifications. If this comes up, tell them to reference files and folders by typing @.`)

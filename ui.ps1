@@ -17,8 +17,8 @@ Write-Host "Success: fnm environment configured" -ForegroundColor Green
 Write-Host ""
 
 # Step 2: Switch to specified Node.js version
-Write-Host "[2/3] Switching to Node.js v20.18.2..." -ForegroundColor Yellow
-fnm use 20.18.2
+Write-Host "[2/3] Switching to Node.js v22.18.0..." -ForegroundColor Yellow
+fnm use 22.18.0
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Error: Node.js version switch failed" -ForegroundColor Red
     exit 1

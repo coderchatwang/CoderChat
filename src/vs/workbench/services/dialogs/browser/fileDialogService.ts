@@ -142,10 +142,10 @@ export class FileDialogService extends AbstractFileDialogService implements IFil
 	private getFilePickerTypes(filters?: FileFilter[]): FilePickerAcceptType[] | undefined {
 		return filters?.filter(filter => {
 			return !((filter.extensions.length === 1) && ((filter.extensions[0] === '*') || filter.extensions[0] === ''));
-		}).map(filter => {
-			const accept: Record<string, string[]> = {};
+		}).map((filter): FilePickerAcceptType => {
+			const accept: Record<`${string}/${string}`, `.${string}`[]> = {};
 			const extensions = filter.extensions.filter(ext => (ext.indexOf('-') < 0) && (ext.indexOf('*') < 0) && (ext.indexOf('_') < 0));
-			accept[getMediaOrTextMime(`fileName.${filter.extensions[0]}`) ?? 'text/plain'] = extensions.map(ext => ext.startsWith('.') ? ext : `.${ext}`);
+			accept[(getMediaOrTextMime(`fileName.${filter.extensions[0]}`) ?? 'text/plain') as `${string}/${string}`] = extensions.map(ext => ext.startsWith('.') ? ext : `.${ext}`) as `.${string}`[];
 			return {
 				description: filter.name,
 				accept

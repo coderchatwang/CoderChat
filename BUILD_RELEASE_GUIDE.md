@@ -1,4 +1,4 @@
-# Void 项目打包编译指南
+# CoderChat 项目打包编译指南
 
 ## 📋 目录
 
@@ -14,7 +14,7 @@
 
 ### 必需软件
 
-- ✅ Node.js v20.18.2（已配置）
+- ✅ Node.js v22.18.0（已配置）
 - ✅ npm 依赖（已安装）
 - ⚠️ **Visual Studio 2022 Build Tools**（需要安装）
 
@@ -39,7 +39,7 @@
 
 ```powershell
 # 1. 确保 Node.js 版本正确
-fnm use 20.18.2
+fnm use 22.18.0
 
 # 2. 编译（耗时约 25 分钟）
 npm run gulp vscode-win32-x64
@@ -91,9 +91,9 @@ npm run gulp vscode-linux-arm64
 
 ```
 workspace/
-├── void/                    # 您的 Void 源码目录
+├── void/                    # 您的 CoderChat 源码目录
 └── VSCode-win32-x64/        # 编译输出（Windows）
-    ├── Void.exe             # 主程序
+    ├── CoderChat             # 主程序
     ├── resources/           # 资源文件
     └── ...
 ```
@@ -107,13 +107,13 @@ workspace/
 
 ```powershell
 # Windows
-..\VSCode-win32-x64\Void.exe
+..\VSCode-win32-x64\CoderChat
 
 # Mac
-../VSCode-darwin-arm64/Void.app/Contents/MacOS/Electron
+../VSCode-darwin-arm64/CoderChat.app/Contents/MacOS/Electron
 
 # Linux
-../VSCode-linux-x64/void
+../VSCode-linux-x64/CoderChat
 ```
 
 ---
@@ -144,10 +144,10 @@ npm run gulp vscode-win32-x64
 创建 `build-release.ps1`：
 
 ```powershell
-# Void 发布版本编译脚本
+# CoderChat 发布版本编译脚本
 
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "  Void Release Builder" -ForegroundColor Cyan
+Write-Host "  CoderChat Release Builder" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
@@ -239,7 +239,7 @@ ReferenceError: AbortController is not defined
 
 **解决方案**：
 - 确保使用 Node.js v18 或更高版本
-- 当前项目要求 v20.18.2，已满足要求
+- 当前项目要求 v22.18.0，已满足要求
 
 ---
 
@@ -265,7 +265,7 @@ ReferenceError: AbortController is not defined
 ```powershell
 # 1. 确认环境
 fnm use 20.18.2
-node --version  # 应该显示 v20.18.2
+node --version  # 应该显示 v22.18.0
 
 # 2. 清理旧文件
 npm run gulp clean
@@ -288,7 +288,7 @@ npm run gulp vscode-win32-x64
 # 启动开发者模式
 .\start-dev.ps1
 
-# 另一个终端启动 Void
+# 另一个终端启动 CoderChat
 .\scripts\code.bat
 ```
 
@@ -300,7 +300,7 @@ npm run gulp vscode-win32-x64
 
 ```
 VSCode-win32-x64/
-├── Void.exe                    # 主程序
+├── CoderChat                    # 主程序
 ├── LICENSE.txt                 # 许可证
 ├── resources/                  # 资源文件
 │   ├── app/                    # 应用代码
@@ -343,7 +343,7 @@ npm run gulp vscode-win32-x64-setup
 编译前确认：
 
 - [ ] 已安装 Visual Studio 2022 Build Tools
-- [ ] Node.js 版本为 v20.18.2
+- [ ] Node.js 版本为 v22.18.0
 - [ ] npm 依赖已安装（npm install）
 - [ ] React 组件已构建（npm run buildreact）
 - [ ] 代码已编译（npm run compile）

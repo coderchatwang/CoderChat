@@ -4,11 +4,11 @@
  *--------------------------------------------------------------------------------------*/
 
 import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react'; // Added useRef import just in case it was missed, though likely already present
-import { ProviderName, SettingName, displayInfoOfSettingName, providerNames, VoidStatefulModelInfo, customSettingNamesOfProvider, RefreshableProviderName, refreshableProviderNames, displayInfoOfProviderName, nonlocalProviderNames, localProviderNames, GlobalSettingName, featureNames, displayInfoOfFeatureName, isProviderNameDisabled, FeatureName, hasDownloadButtonsOnModelsProviderNames, subTextMdOfProviderName, DefaultLang } from '../../../../common/voidSettingsTypes.js'
+import { ProviderName, SettingName, displayInfoOfSettingName, providerNames, VoidStatefulModelInfo, customSettingNamesOfProvider, RefreshableProviderName, refreshableProviderNames, displayInfoOfProviderName, nonlocalProviderNames, localProviderNames, GlobalSettingName, featureNames, displayInfoOfFeatureName, isProviderNameDisabled, FeatureName, hasDownloadButtonsOnModelsProviderNames, subTextMdOfProviderName, DefaultLang, ResponseLanguage, defaultResponseLanguagePromptOfLanguage, compatibleApiProviderNames } from '../../../../common/voidSettingsTypes.js'
 import ErrorBoundary from '../sidebar-tsx/ErrorBoundary.js'
 import { VoidButtonBgDarken, VoidCustomDropdownBox, VoidInputBox2, VoidSimpleInputBox, VoidSwitch } from '../util/inputs.js'
-import { useAccessor, useIsDark, useIsOptedOut, useRefreshModelListener, useRefreshModelState, useSettingsState } from '../util/services.js'
-import { X, RefreshCw, Loader2, Check, Asterisk, Plus } from 'lucide-react'
+import { useAccessor, useIsDark, useIsOptedOut, useRefreshModelListener, useRefreshModelState, useSettingsState, useSkillServiceState } from '../util/services.js'
+import { X, RefreshCw, Loader2, Check, Asterisk, Plus, ChevronDown, ChevronUp, Settings as SettingsIcon, Trash2, Pencil, Copy } from 'lucide-react'
 import { URI } from '../../../../../../../base/common/uri.js'
 import { ModelDropdown } from './ModelDropdown.js'
 import { ChatMarkdownRender } from '../markdown/ChatMarkdownRender.js'
@@ -24,12 +24,15 @@ import { useMCPServiceState } from '../util/services.js';
 import { OPT_OUT_KEY } from '../../../../common/storageKeys.js';
 import { StorageScope, StorageTarget } from '../../../../../../../platform/storage/common/storage.js';
 import { useVoidChatI18n } from '../util/i18n.js';
+import { createNotificationHelper } from '../../../../common/helpers/notificationHelper.js';
 
 type Tab =
 	| 'models'
+	| 'compatibleApiProviders'
 	| 'localProviders'
 	| 'providers'
 	| 'featureOptions'
+	| 'skills'
 	| 'mcp'
 	| 'general'
 	| 'all';
@@ -201,6 +204,398 @@ const ConfirmButton = ({ children, onConfirm, className }: { children: React.Rea
 	);
 };
 
+// ---------------- Add Model Dialog ------------------
+
+// Special marker object for unset values - used to distinguish from actual values
+// This object is unique and can be used as a special option in dropdowns
+const UNSET_MARKER = { __unset: true } as const
+type UnsetMarker = typeof UNSET_MARKER
+
+// Default model configuration values shown in UI (for display purposes only)
+const defaultModelConfigDisplay = {
+	contextWindow: 128000,
+	reservedOutputTokenSpace: 4096,
+	supportsSystemMessage: 'system-role' as const,
+	specialToolFormat: 'none' as const,
+	supportsVision: false,
+	supportsFIM: false,
+	supportsReasoning: true,
+	canTurnOffReasoning: false,
+	canIOReasoning: false,
+}
+
+// Initial config state - all values are unset by default
+const initialModelConfig = {
+	contextWindow: UNSET_MARKER as number | UnsetMarker,
+	reservedOutputTokenSpace: UNSET_MARKER as number | UnsetMarker,
+	supportsSystemMessage: UNSET_MARKER as 'false' | 'system-role' | 'developer-role' | 'separated' | UnsetMarker,
+	specialToolFormat: UNSET_MARKER as 'none' | 'openai-style' | 'anthropic-style' | UnsetMarker,
+	supportsVision: UNSET_MARKER as boolean | UnsetMarker,
+	supportsFIM: UNSET_MARKER as boolean | UnsetMarker,
+	supportsReasoning: UNSET_MARKER as boolean | UnsetMarker,
+	canTurnOffReasoning: UNSET_MARKER as boolean | UnsetMarker,
+	canIOReasoning: UNSET_MARKER as boolean | UnsetMarker,
+}
+
+// Helper function to check if a value is unset
+const isUnset = (value: any): boolean => value === UNSET_MARKER
+
+const AddModelDialog = ({
+	isOpen,
+	onClose,
+	providersToShow,
+	getDetailForProvider,
+}: {
+	isOpen: boolean
+	onClose: () => void
+	providersToShow: ProviderName[]
+	getDetailForProvider: (providerName: ProviderName) => string
+}) => {
+	const t = useVoidChatI18n()
+	const accessor = useAccessor()
+	const settingsStateService = accessor.get('IVoidSettingsService')
+	const settingsState = useSettingsState()
+
+	// Sort providers: configured ones first, unconfigured ones last
+	const sortedProvidersToShow = useMemo(() => {
+		return [...providersToShow].sort((a, b) => {
+			const aConfigured = settingsState.settingsOfProvider[a]?._didFillInProviderSettings ?? false
+			const bConfigured = settingsState.settingsOfProvider[b]?._didFillInProviderSettings ?? false
+			// Configured providers come first (1 means b comes first, -1 means a comes first)
+			if (aConfigured && !bConfigured) return -1
+			if (!aConfigured && bConfigured) return 1
+			return 0
+		})
+	}, [providersToShow, settingsState.settingsOfProvider])
+
+	// Basic fields
+	const [providerName, setProviderName] = useState<ProviderName | null>(null)
+	const [modelName, setModelName] = useState('')
+	const [errorString, setErrorString] = useState('')
+	const [showAdvanced, setShowAdvanced] = useState(false)
+
+	// Config fields - initialize with UNSET_MARKER to distinguish from actual values
+	const [contextWindow, setContextWindow] = useState(initialModelConfig.contextWindow)
+	const [reservedOutputTokenSpace, setReservedOutputTokenSpace] = useState(initialModelConfig.reservedOutputTokenSpace)
+	const [supportsSystemMessage, setSupportsSystemMessage] = useState<typeof initialModelConfig.supportsSystemMessage>(initialModelConfig.supportsSystemMessage)
+	const [specialToolFormat, setSpecialToolFormat] = useState<typeof initialModelConfig.specialToolFormat>(initialModelConfig.specialToolFormat)
+	const [supportsVision, setSupportsVision] = useState(initialModelConfig.supportsVision)
+	const [supportsFIM, setSupportsFIM] = useState(initialModelConfig.supportsFIM)
+	const [supportsReasoning, setSupportsReasoning] = useState(initialModelConfig.supportsReasoning)
+	const [canTurnOffReasoning, setCanTurnOffReasoning] = useState(initialModelConfig.canTurnOffReasoning)
+	const [canIOReasoning, setCanIOReasoning] = useState(initialModelConfig.canIOReasoning)
+
+	// Reset when dialog opens
+	useEffect(() => {
+		if (isOpen) {
+			setProviderName(null)
+			setModelName('')
+			setErrorString('')
+			setShowAdvanced(false)
+			// Reset all config fields to UNSET_MARKER
+			setContextWindow(initialModelConfig.contextWindow)
+			setReservedOutputTokenSpace(initialModelConfig.reservedOutputTokenSpace)
+			setSupportsSystemMessage(initialModelConfig.supportsSystemMessage)
+			setSpecialToolFormat(initialModelConfig.specialToolFormat)
+			setSupportsVision(initialModelConfig.supportsVision)
+			setSupportsFIM(initialModelConfig.supportsFIM)
+			setSupportsReasoning(initialModelConfig.supportsReasoning)
+			setCanTurnOffReasoning(initialModelConfig.canTurnOffReasoning)
+			setCanIOReasoning(initialModelConfig.canIOReasoning)
+		}
+	}, [isOpen])
+
+	const handleAddModel = async () => {
+		if (!providerName) {
+			setErrorString(t.pleaseSelectProvider())
+			return
+		}
+		if (!modelName) {
+			setErrorString(t.pleaseEnterModelName())
+			return
+		}
+
+		// Check if provider is configured
+		const providerSettings = settingsState.settingsOfProvider[providerName]
+		if (!providerSettings._didFillInProviderSettings) {
+			const providerTitle = displayInfoOfProviderName(providerName).title
+			setErrorString(t.providerNotConfigured(providerTitle))
+			return
+		}
+
+		// Check if model already exists
+		if (settingsState.settingsOfProvider[providerName].models.find(m => m.modelName === modelName)) {
+			setErrorString(t.modelAlreadyExists())
+			return
+		}
+
+		// Build overrides - only include values that have been explicitly set (not UNSET_MARKER)
+		let overrides: Partial<ModelOverrides> = {}
+
+		// Basic config - only add if set
+		if (!isUnset(contextWindow)) {
+			overrides.contextWindow = contextWindow as number
+		}
+		if (!isUnset(reservedOutputTokenSpace)) {
+			overrides.reservedOutputTokenSpace = reservedOutputTokenSpace as number
+		}
+		if (!isUnset(specialToolFormat) && specialToolFormat !== 'none') {
+			overrides.specialToolFormat = specialToolFormat as 'openai-style' | 'anthropic-style'
+		}
+		if (!isUnset(supportsVision)) {
+			overrides.supportsVision = supportsVision as boolean
+		}
+
+		// Advanced config - only when shown and set
+		if (showAdvanced) {
+			if (!isUnset(supportsSystemMessage)) {
+				overrides.supportsSystemMessage = supportsSystemMessage === 'false' ? false : supportsSystemMessage as 'system-role' | 'developer-role' | 'separated'
+			}
+			if (!isUnset(supportsFIM)) {
+				overrides.supportsFIM = supportsFIM as boolean
+			}
+			if (!isUnset(supportsReasoning)) {
+				if (supportsReasoning) {
+					overrides.reasoningCapabilities = {
+						supportsReasoning: true,
+						canTurnOffReasoning: !isUnset(canTurnOffReasoning) ? (canTurnOffReasoning as boolean) : false,
+						canIOReasoning: !isUnset(canIOReasoning) ? (canIOReasoning as boolean) : false,
+					}
+				} else {
+					overrides.reasoningCapabilities = false
+				}
+			}
+		}
+
+		// Add model
+		settingsStateService.addModel(providerName, modelName)
+		// Only save overrides if there are any set values
+		if (Object.keys(overrides).length > 0) {
+			await settingsStateService.setOverridesOfModel(providerName, modelName, overrides)
+		}
+		onClose()
+	}
+
+	if (!isOpen) return null
+
+	return (
+		<div
+			className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999999]"
+		>
+			<div
+				className="bg-void-bg-1 rounded-lg p-6 max-w-lg w-full shadow-xl overflow-y-auto max-h-[90vh] border border-void-border-2"
+			>
+				{/* Header */}
+				<div className="flex justify-between items-center mb-4">
+					<h3 className="text-2xl font-light text-void-fg-1">{t.addModelDialogTitle()}</h3>
+					<button onClick={onClose} className="text-void-fg-3 hover:text-void-fg-1 transition-colors">
+						<X className="size-5" />
+					</button>
+				</div>
+
+				{/* Description */}
+				<div className="text-sm text-void-fg-3 mb-4 opacity-80">{t.addModelDialogDesc()}</div>
+
+				{/* Provider Selection */}
+				<div className="mb-4 flex items-center gap-3">
+					<label className="text-sm font-medium min-w-[100px] text-void-fg-3">{t.providerName()}</label>
+					<ErrorBoundary>
+						<VoidCustomDropdownBox
+							options={sortedProvidersToShow}
+							selectedOption={providerName}
+							onChangeOption={(pn) => setProviderName(pn)}
+							getOptionDisplayName={(pn) => pn ? displayInfoOfProviderName(pn).title : t.providerName()}
+							getOptionDropdownName={(pn) => pn ? displayInfoOfProviderName(pn).title : t.providerName()}
+							getOptionDropdownDetail={(pn) => pn ? getDetailForProvider(pn) : ''}
+							getOptionsEqual={(a, b) => a === b}
+							className="flex-1 resize-none bg-void-bg-1 text-void-fg-1 placeholder:text-void-fg-3 border border-void-border-2 focus:border-void-border-1 py-2 px-3 rounded"
+							arrowTouchesText={false}
+							zIndex={99999999}
+						/>
+					</ErrorBoundary>
+				</div>
+
+				{/* Model Name */}
+				<div className="mb-4 flex items-center gap-3">
+					<label className="text-sm font-medium min-w-[100px] text-void-fg-3">{t.modelName()}</label>
+					<ErrorBoundary>
+						<VoidSimpleInputBox
+							value={modelName}
+							onChangeValue={setModelName}
+							placeholder={t.modelName()}
+							className='flex-1'
+						/>
+					</ErrorBoundary>
+				</div>
+
+				{/* Basic Configuration - moved out of advanced */}
+				<div className="border border-void-border-2 rounded-md p-4 mb-4 space-y-4 bg-void-bg-2/30">
+					<div className="text-sm font-medium text-void-fg-2 mb-2">{t.basicConfig()}</div>
+
+					{/* Context Window */}
+					<div className="flex items-center gap-3">
+						<label className="text-sm min-w-[100px] text-void-fg-3">{t.contextWindow()}</label>
+						<ErrorBoundary>
+							<VoidSimpleInputBox
+								value={isUnset(contextWindow) ? '' : contextWindow.toString()}
+								onChangeValue={(v) => {
+									if (v === '') {
+										setContextWindow(UNSET_MARKER)
+									} else {
+										const parsed = parseInt(v)
+										if (!isNaN(parsed)) {
+											setContextWindow(parsed)
+										}
+									}
+								}}
+								placeholder={`${defaultModelConfigDisplay.contextWindow} (${t.systemDefault()})`}
+								className='flex-1'
+							/>
+						</ErrorBoundary>
+					</div>
+
+					{/* Reserved Output Tokens */}
+					<div className="flex items-center gap-3">
+						<label className="text-sm min-w-[100px] text-void-fg-3">{t.reservedOutputTokens()}</label>
+						<ErrorBoundary>
+							<VoidSimpleInputBox
+								value={isUnset(reservedOutputTokenSpace) ? '' : reservedOutputTokenSpace.toString()}
+								onChangeValue={(v) => {
+									if (v === '') {
+										setReservedOutputTokenSpace(UNSET_MARKER)
+									} else {
+										const parsed = parseInt(v)
+										if (!isNaN(parsed)) {
+											setReservedOutputTokenSpace(parsed)
+										}
+									}
+								}}
+								placeholder={`${defaultModelConfigDisplay.reservedOutputTokenSpace} (${t.systemDefault()})`}
+								className='flex-1'
+							/>
+						</ErrorBoundary>
+					</div>
+
+					{/* Special Tool Format */}
+					<div className="flex items-center gap-3">
+						<label className="text-sm min-w-[100px] text-void-fg-3">{t.specialToolFormat()}</label>
+						<ErrorBoundary>
+							<VoidCustomDropdownBox
+								options={['none', 'openai-style', 'anthropic-style'] as const}
+								selectedOption={(isUnset(specialToolFormat) ? 'none' : specialToolFormat) as 'none' | 'openai-style' | 'anthropic-style'}
+								onChangeOption={(v) => setSpecialToolFormat(v)}
+								getOptionDisplayName={(v) => v === 'none' ? t.specialToolFormatNone() : v}
+								getOptionDropdownName={(v) => v === 'none' ? t.specialToolFormatNone() : v}
+								getOptionsEqual={(a, b) => a === b}
+								className="flex-1 resize-none bg-void-bg-1 text-void-fg-1 border border-void-border-2 focus:border-void-border-1 py-2 px-3 rounded"
+								arrowTouchesText={false}
+								zIndex={99999999}
+							/>
+						</ErrorBoundary>
+					</div>
+
+					{/* Supports Vision */}
+					<div className="flex items-center gap-3">
+						<VoidSwitch size='sm' value={supportsVision === true} onChange={(v) => setSupportsVision(v ? true : UNSET_MARKER)} />
+						<span className="text-sm text-void-fg-3">{t.supportsVision()}</span>
+						{isUnset(supportsVision) && <span className="text-xs text-void-fg-4">({t.notSet()})</span>}
+					</div>
+				</div>
+
+				{/* Advanced Config Toggle */}
+				<div className="mb-4">
+					<button type="button" onClick={() => setShowAdvanced(!showAdvanced)} className="flex items-center gap-2 text-void-fg-3 hover:text-void-fg-1">
+						{showAdvanced ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
+						<span className="text-sm">{t.advancedConfig()}</span>
+					</button>
+					<div className="text-xs text-void-fg-4 mt-1">{t.advancedConfigDesc()}</div>
+				</div>
+
+				{/* Advanced Config Fields */}
+				{showAdvanced && (
+					<div className="border border-void-border-2 rounded-md p-4 mb-4 space-y-4">
+						{/* Supports System Message */}
+						<div className="flex items-center gap-3">
+							<label className="text-sm min-w-[100px] text-void-fg-3">{t.supportsSystemMessage()}</label>
+							<ErrorBoundary>
+								<VoidCustomDropdownBox
+									options={['false', 'system-role', 'developer-role', 'separated'] as const}
+									selectedOption={(isUnset(supportsSystemMessage) ? defaultModelConfigDisplay.supportsSystemMessage : supportsSystemMessage) as 'false' | 'system-role' | 'developer-role' | 'separated'}
+									onChangeOption={(v) => setSupportsSystemMessage(v)}
+									getOptionDisplayName={(v) => v === 'false' ? t.supportsSystemMessageNone() : v}
+									getOptionDropdownName={(v) => v === 'false' ? t.supportsSystemMessageNone() : v}
+									getOptionsEqual={(a, b) => a === b}
+									className="flex-1 resize-none bg-void-bg-1 text-void-fg-1 border border-void-border-2 focus:border-void-border-1 py-2 px-3 rounded"
+									arrowTouchesText={false}
+									zIndex={99999999}
+								/>
+							</ErrorBoundary>
+						</div>
+
+						{/* Supports FIM */}
+						<div className="flex items-center gap-3">
+							<VoidSwitch size='sm' value={supportsFIM === true} onChange={(v) => setSupportsFIM(v ? true : UNSET_MARKER)} />
+							<span className="text-sm text-void-fg-3">{t.supportsFIM()}</span>
+							{isUnset(supportsFIM) && <span className="text-xs text-void-fg-4">({t.notSet()})</span>}
+						</div>
+
+						{/* Reasoning Capabilities */}
+						<div className="border-t border-void-border-2 pt-4 mt-4">
+							<div className="flex items-center gap-3 mb-3">
+								<VoidSwitch size='sm' value={supportsReasoning === true} onChange={(v) => setSupportsReasoning(v ? true : UNSET_MARKER)} />
+								<span className="text-sm font-medium text-void-fg-3">{t.reasoningCapabilities()}</span>
+								{isUnset(supportsReasoning) && <span className="text-xs text-void-fg-4">({t.notSet()})</span>}
+							</div>
+
+							{supportsReasoning === true && (
+								<div className="pl-6 space-y-3">
+									{/* Can Turn Off Reasoning */}
+									<div className="flex items-center gap-3">
+										<VoidSwitch size='xs' value={canTurnOffReasoning === true} onChange={(v) => setCanTurnOffReasoning(v ? true : UNSET_MARKER)} />
+										<span className="text-sm text-void-fg-3">{t.canTurnOffReasoning()}</span>
+										{isUnset(canTurnOffReasoning) && <span className="text-xs text-void-fg-4">({t.notSet()})</span>}
+									</div>
+
+									{/* Can IO Reasoning */}
+									<div className="flex items-center gap-3">
+										<VoidSwitch size='xs' value={canIOReasoning === true} onChange={(v) => setCanIOReasoning(v ? true : UNSET_MARKER)} />
+										<span className="text-sm text-void-fg-3">{t.canIOReasoning()}</span>
+										{isUnset(canIOReasoning) && <span className="text-xs text-void-fg-4">({t.notSet()})</span>}
+									</div>
+								</div>
+							)}
+						</div>
+					</div>
+				)}
+
+				{/* Error Message */}
+				{errorString && <div className="text-amber-400 mb-4 text-sm opacity-80">{errorString}</div>}
+
+				{/* Footer */}
+				<div className="flex justify-end gap-3 mt-6">
+					<button
+						onClick={onClose}
+						className="px-6 py-2 rounded text-void-fg-3 opacity-80 hover:opacity-100 transition-all"
+					>
+						{t.cancel()}
+					</button>
+					<button
+						onClick={handleAddModel}
+						className={`px-6 py-2 rounded transition-all ${
+							!modelName || !providerName
+								? 'bg-zinc-100/40 cursor-not-allowed text-black/40'
+								: 'bg-zinc-100 hover:bg-zinc-100/80 text-black'
+						}`}
+						disabled={!modelName || !providerName}
+					>
+						{t.addAModel()}
+					</button>
+				</div>
+			</div>
+		</div>
+	)
+}
+
 // ---------------- Simplified Model Settings Dialog ------------------
 
 // keys of ModelOverrides we allow the user to override
@@ -287,7 +682,7 @@ const SimpleModelSettingsDialog = ({
 		onClose();
 	};
 
-	const sourcecodeOverridesLink = `https://github.com/voideditor/void/blob/2e5ecb291d33afbe4565921664fb7e183189c1c5/src/vs/workbench/contrib/void/common/modelCapabilities.ts#L146-L172`
+	const sourcecodeOverridesLink = `https://github.com/coderchatwang/CoderChat/blob/f1beb3fe70eccdcaff9f75b0c64c83d904f787d1/src/vs/workbench/contrib/void/common/modelCapabilities.ts#L210-L254`
 
 	return (
 		<div // Backdrop
@@ -370,16 +765,385 @@ const SimpleModelSettingsDialog = ({
 			</div>
 		</div>
 	);
-};
+}
 
 
 
+
+// ---------------- Edit Model Dialog (Graphical) ------------------
+
+const EditModelDialog = ({
+	isOpen,
+	onClose,
+	modelInfo,
+}: {
+	isOpen: boolean
+	onClose: () => void
+	modelInfo: { modelName: string; providerName: ProviderName; type: 'autodetected' | 'custom' | 'default' } | null
+}) => {
+	const t = useVoidChatI18n()
+	const accessor = useAccessor()
+	const settingsStateService = accessor.get('IVoidSettingsService')
+	const settingsState = useSettingsState()
+	const mouseDownInsideModal = useRef(false)
+
+	// Get model info with safe defaults (hooks must be called before any early return)
+	const modelName = modelInfo?.modelName ?? ''
+	const providerName = modelInfo?.providerName
+	const type = modelInfo?.type ?? 'default'
+
+	// Get current overrides and default capabilities (only if providerName exists)
+	const defaultModelCapabilities = providerName ? getModelCapabilities(providerName, modelName, undefined) : null
+	const currentOverrides = providerName ? settingsState.overridesOfModel?.[providerName]?.[modelName] ?? undefined : undefined
+	const { recognizedModelName, isUnrecognizedModel } = defaultModelCapabilities ?? { recognizedModelName: '', isUnrecognizedModel: false }
+
+	// State for config fields - initialize with current overrides or defaults
+	const [contextWindow, setContextWindow] = useState<number | null>(() =>
+		currentOverrides?.contextWindow ?? defaultModelCapabilities?.contextWindow ?? null
+	)
+	const [reservedOutputTokenSpace, setReservedOutputTokenSpace] = useState<number | null>(() =>
+		currentOverrides?.reservedOutputTokenSpace ?? defaultModelCapabilities?.reservedOutputTokenSpace ?? null
+	)
+	const [specialToolFormat, setSpecialToolFormat] = useState<'none' | 'openai-style' | 'anthropic-style'>(() =>
+		(currentOverrides?.specialToolFormat ?? defaultModelCapabilities?.specialToolFormat ?? 'none') as 'none' | 'openai-style' | 'anthropic-style'
+	)
+	const [supportsVision, setSupportsVision] = useState<boolean>(() =>
+		currentOverrides?.supportsVision ?? defaultModelCapabilities?.supportsVision ?? false
+	)
+	const [supportsFIM, setSupportsFIM] = useState<boolean>(() =>
+		currentOverrides?.supportsFIM ?? defaultModelCapabilities?.supportsFIM ?? false
+	)
+	const [supportsSystemMessage, setSupportsSystemMessage] = useState<'false' | 'system-role' | 'developer-role' | 'separated'>(() =>
+		(currentOverrides?.supportsSystemMessage ?? defaultModelCapabilities?.supportsSystemMessage ?? 'system-role') as 'false' | 'system-role' | 'developer-role' | 'separated'
+	)
+
+	// Reasoning capabilities
+	const defaultReasoning = defaultModelCapabilities?.reasoningCapabilities
+	const currentReasoning = currentOverrides?.reasoningCapabilities
+	const [supportsReasoning, setSupportsReasoning] = useState<boolean>(() =>
+		typeof currentReasoning === 'object' ? true : (typeof defaultReasoning === 'object' ? true : false)
+	)
+	const [canTurnOffReasoning, setCanTurnOffReasoning] = useState<boolean>(() =>
+		typeof currentReasoning === 'object' ? currentReasoning.canTurnOffReasoning : (typeof defaultReasoning === 'object' ? defaultReasoning.canTurnOffReasoning : false)
+	)
+	const [canIOReasoning, setCanIOReasoning] = useState<boolean>(() =>
+		typeof currentReasoning === 'object' ? currentReasoning.canIOReasoning : (typeof defaultReasoning === 'object' ? defaultReasoning.canIOReasoning : false)
+	)
+
+	const [showAdvanced, setShowAdvanced] = useState(false)
+	const [errorString, setErrorString] = useState('')
+
+	// Reset when dialog opens with current values
+	useEffect(() => {
+		if (isOpen && modelInfo && modelInfo.providerName) {
+			const overrides = settingsState.overridesOfModel?.[modelInfo.providerName]?.[modelInfo.modelName] ?? undefined
+			const defaults = getModelCapabilities(modelInfo.providerName, modelInfo.modelName, undefined)
+
+			setContextWindow(overrides?.contextWindow ?? defaults.contextWindow ?? null)
+			setReservedOutputTokenSpace(overrides?.reservedOutputTokenSpace ?? defaults.reservedOutputTokenSpace ?? null)
+			setSpecialToolFormat((overrides?.specialToolFormat ?? defaults.specialToolFormat ?? 'none') as 'none' | 'openai-style' | 'anthropic-style')
+			setSupportsVision(overrides?.supportsVision ?? defaults.supportsVision ?? false)
+			setSupportsFIM(overrides?.supportsFIM ?? defaults.supportsFIM ?? false)
+			setSupportsSystemMessage((overrides?.supportsSystemMessage ?? defaults.supportsSystemMessage ?? 'system-role') as 'false' | 'system-role' | 'developer-role' | 'separated')
+
+			const reasoning = overrides?.reasoningCapabilities ?? defaults.reasoningCapabilities
+			setSupportsReasoning(typeof reasoning === 'object' ? true : false)
+			setCanTurnOffReasoning(typeof reasoning === 'object' ? reasoning.canTurnOffReasoning : false)
+			setCanIOReasoning(typeof reasoning === 'object' ? reasoning.canIOReasoning : false)
+
+			setShowAdvanced(false)
+			setErrorString('')
+		}
+	}, [isOpen, modelInfo, settingsState.overridesOfModel])
+
+	// Early return after all hooks are called
+	if (!isOpen || !modelInfo || !providerName || !defaultModelCapabilities) return null
+
+	const handleSave = async () => {
+		const overrides: Partial<ModelOverrides> = {}
+
+		// Always set all values - this ensures old overrides are properly replaced
+		// Only include non-null values
+		if (contextWindow !== null) {
+			overrides.contextWindow = contextWindow
+		}
+		if (reservedOutputTokenSpace !== null) {
+			overrides.reservedOutputTokenSpace = reservedOutputTokenSpace
+		}
+		// Always set specialToolFormat, even if 'none'
+		overrides.specialToolFormat = specialToolFormat === 'none' ? undefined : specialToolFormat
+		overrides.supportsVision = supportsVision
+		overrides.supportsFIM = supportsFIM
+		overrides.supportsSystemMessage = supportsSystemMessage === 'false' ? false : supportsSystemMessage
+
+		// Reasoning capabilities
+		if (supportsReasoning) {
+			overrides.reasoningCapabilities = {
+				supportsReasoning: true,
+				canTurnOffReasoning,
+				canIOReasoning,
+			}
+		} else {
+			overrides.reasoningCapabilities = false
+		}
+
+		// Save overrides - pass undefined if no meaningful overrides to clear any existing ones
+		const hasOverrides = Object.keys(overrides).some(key => {
+			const val = overrides[key as keyof typeof overrides]
+			return val !== undefined && val !== null
+		})
+
+		await settingsStateService.setOverridesOfModel(providerName, modelName, hasOverrides ? overrides : undefined)
+		onClose()
+	}
+
+	const handleReset = async () => {
+		await settingsStateService.setOverridesOfModel(providerName, modelName, undefined)
+		onClose()
+	}
+
+	// Check if any dropdown is currently open
+	const isDropdownOpen = () => {
+		const dropdowns = document.querySelectorAll('[data-void-dropdown-open="true"]')
+		return dropdowns.length > 0
+	}
+
+	return (
+		<div
+			className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999999]"
+			onMouseDown={() => { mouseDownInsideModal.current = false }}
+			onMouseUp={() => {
+				if (isDropdownOpen()) {
+					return
+				}
+				if (!mouseDownInsideModal.current) {
+					onClose()
+				}
+				mouseDownInsideModal.current = false
+			}}
+		>
+			<div
+				className="bg-void-bg-1 rounded-lg p-6 max-w-lg w-full shadow-xl overflow-y-auto max-h-[90vh] border border-void-border-2"
+				onClick={(e) => e.stopPropagation()}
+				onMouseDown={(e) => {
+					mouseDownInsideModal.current = true
+					e.stopPropagation()
+				}}
+			>
+				{/* Header */}
+				<div className="flex justify-between items-center mb-4">
+					<h3 className="text-2xl font-light text-void-fg-1">{t.editModelDialogTitle()}</h3>
+					<button onClick={onClose} className="text-void-fg-3 hover:text-void-fg-1 transition-colors">
+						<X className="size-5" />
+					</button>
+				</div>
+
+				{/* Model Info */}
+				<div className="text-sm text-void-fg-3 mb-4 opacity-80">
+					<span className="font-medium">{displayInfoOfProviderName(providerName).title}</span> / {modelName}
+					{isUnrecognizedModel && <span className="ml-2 text-amber-500">({t.unrecognizedModel()})</span>}
+				</div>
+
+				{/* Description */}
+				<div className="text-sm text-void-fg-3 mb-4 opacity-80">{t.editModelDialogDesc()}</div>
+
+				{/* Basic Configuration */}
+				<div className="border border-void-border-2 rounded-md p-4 mb-4 space-y-4 bg-void-bg-2/30">
+					<div className="text-sm font-medium text-void-fg-2 mb-2">{t.basicConfig()}</div>
+
+					{/* Context Window */}
+					<div className="flex items-center gap-3">
+						<label className="text-sm min-w-[100px] text-void-fg-3">{t.contextWindow()}</label>
+						<ErrorBoundary>
+							<VoidSimpleInputBox
+								value={contextWindow?.toString() ?? ''}
+								onChangeValue={(v) => {
+									if (v === '') {
+										setContextWindow(null)
+									} else {
+										const parsed = parseInt(v)
+										if (!isNaN(parsed)) {
+											setContextWindow(parsed)
+										}
+									}
+								}}
+								placeholder={`${defaultModelCapabilities.contextWindow ?? 128000}`}
+								className='flex-1'
+							/>
+						</ErrorBoundary>
+					</div>
+
+					{/* Reserved Output Tokens */}
+					<div className="flex items-center gap-3">
+						<label className="text-sm min-w-[100px] text-void-fg-3">{t.reservedOutputTokens()}</label>
+						<ErrorBoundary>
+							<VoidSimpleInputBox
+								value={reservedOutputTokenSpace?.toString() ?? ''}
+								onChangeValue={(v) => {
+									if (v === '') {
+										setReservedOutputTokenSpace(null)
+									} else {
+										const parsed = parseInt(v)
+										if (!isNaN(parsed)) {
+											setReservedOutputTokenSpace(parsed)
+										}
+									}
+								}}
+								placeholder={`${defaultModelCapabilities.reservedOutputTokenSpace ?? 4096}`}
+								className='flex-1'
+							/>
+						</ErrorBoundary>
+					</div>
+
+					{/* Special Tool Format */}
+					<div className="flex items-center gap-3">
+						<label className="text-sm min-w-[100px] text-void-fg-3">{t.specialToolFormat()}</label>
+						<ErrorBoundary>
+							<VoidCustomDropdownBox
+								options={['none', 'openai-style', 'anthropic-style'] as const}
+								selectedOption={specialToolFormat}
+								onChangeOption={(v) => setSpecialToolFormat(v)}
+								getOptionDisplayName={(v) => v === 'none' ? t.specialToolFormatNone() : v}
+								getOptionDropdownName={(v) => v === 'none' ? t.specialToolFormatNone() : v}
+								getOptionsEqual={(a, b) => a === b}
+								className="flex-1 resize-none bg-void-bg-1 text-void-fg-1 border border-void-border-2 focus:border-void-border-1 py-2 px-3 rounded"
+								arrowTouchesText={false}
+								zIndex={99999999}
+							/>
+						</ErrorBoundary>
+					</div>
+
+					{/* Supports Vision */}
+					<div className="flex items-center gap-3">
+						<VoidSwitch size='sm' value={supportsVision} onChange={setSupportsVision} />
+						<span className="text-sm text-void-fg-3">{t.supportsVision()}</span>
+					</div>
+				</div>
+
+				{/* Advanced Config Toggle */}
+				<div className="mb-4">
+					<button type="button" onClick={() => setShowAdvanced(!showAdvanced)} className="flex items-center gap-2 text-void-fg-3 hover:text-void-fg-1">
+						{showAdvanced ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
+						<span className="text-sm">{t.advancedConfig()}</span>
+					</button>
+					<div className="text-xs text-void-fg-4 mt-1">{t.advancedConfigDesc()}</div>
+				</div>
+
+				{/* Advanced Config Fields */}
+				{showAdvanced && (
+					<div className="border border-void-border-2 rounded-md p-4 mb-4 space-y-4">
+						{/* Supports System Message */}
+						<div className="flex items-center gap-3">
+							<label className="text-sm min-w-[100px] text-void-fg-3">{t.supportsSystemMessage()}</label>
+							<ErrorBoundary>
+								<VoidCustomDropdownBox
+									options={['false', 'system-role', 'developer-role', 'separated'] as const}
+									selectedOption={supportsSystemMessage}
+									onChangeOption={(v) => setSupportsSystemMessage(v)}
+									getOptionDisplayName={(v) => v === 'false' ? t.supportsSystemMessageNone() : v}
+									getOptionDropdownName={(v) => v === 'false' ? t.supportsSystemMessageNone() : v}
+									getOptionsEqual={(a, b) => a === b}
+									className="flex-1 resize-none bg-void-bg-1 text-void-fg-1 border border-void-border-2 focus:border-void-border-1 py-2 px-3 rounded"
+									arrowTouchesText={false}
+									zIndex={99999999}
+								/>
+							</ErrorBoundary>
+						</div>
+
+						{/* Supports FIM */}
+						<div className="flex items-center gap-3">
+							<VoidSwitch size='sm' value={supportsFIM} onChange={setSupportsFIM} />
+							<span className="text-sm text-void-fg-3">{t.supportsFIM()}</span>
+						</div>
+
+						{/* Reasoning Capabilities */}
+						<div className="border-t border-void-border-2 pt-4 mt-4">
+							<div className="flex items-center gap-3 mb-3">
+								<VoidSwitch size='sm' value={supportsReasoning} onChange={setSupportsReasoning} />
+								<span className="text-sm font-medium text-void-fg-3">{t.reasoningCapabilities()}</span>
+							</div>
+
+							{supportsReasoning && (
+								<div className="pl-6 space-y-3">
+									{/* Can Turn Off Reasoning */}
+									<div className="flex items-center gap-3">
+										<VoidSwitch size='xs' value={canTurnOffReasoning} onChange={setCanTurnOffReasoning} />
+										<span className="text-sm text-void-fg-3">{t.canTurnOffReasoning()}</span>
+									</div>
+
+									{/* Can IO Reasoning */}
+									<div className="flex items-center gap-3">
+										<VoidSwitch size='xs' value={canIOReasoning} onChange={setCanIOReasoning} />
+										<span className="text-sm text-void-fg-3">{t.canIOReasoning()}</span>
+									</div>
+								</div>
+							)}
+						</div>
+					</div>
+				)}
+
+				{/* Error Message */}
+				{errorString && <div className="text-amber-400 mb-4 text-sm opacity-80">{errorString}</div>}
+
+				{/* Footer */}
+				<div className="flex justify-between gap-3 mt-6">
+					<button
+						onClick={handleReset}
+						className="px-4 py-2 rounded text-void-fg-3 opacity-80 hover:opacity-100 transition-all border border-void-border-2 hover:border-void-border-1"
+					>
+						{t.resetToDefaults()}
+					</button>
+					<div className="flex gap-3">
+						<button
+							onClick={onClose}
+							className="px-6 py-2 rounded text-void-fg-3 opacity-80 hover:opacity-100 transition-all"
+						>
+							{t.cancel()}
+						</button>
+						<button
+							onClick={handleSave}
+							className="px-6 py-2 rounded bg-[#0e70c0] hover:bg-[#1177cb] text-white transition-all"
+						>
+							{t.save()}
+						</button>
+					</div>
+				</div>
+			</div>
+		</div>
+	)
+}
+
+
+// Helper function to extract domain from URL
+const extractDomainForSettings = (url: string): string => {
+	try {
+		const parsed = new URL(url)
+		return parsed.hostname
+	} catch {
+		// If URL parsing fails, try to extract domain manually
+		const match = url.match(/^(?:https?:\/\/)?([^\/:?]+)/)
+		return match ? match[1] : url
+	}
+}
 
 export const ModelDump = ({ filteredProviders }: { filteredProviders?: ProviderName[] }) => {
 	const t = useVoidChatI18n();
 	const accessor = useAccessor()
 	const settingsStateService = accessor.get('IVoidSettingsService')
 	const settingsState = useSettingsState()
+
+	// Helper function to get display detail for a provider (for OpenAI Compatible series)
+	const getDetailForProvider = useCallback((providerName: ProviderName): string => {
+		// Check if provider name contains "openAICompatible"
+		if (providerName.toLowerCase().includes('openaicompatible')) {
+			const endpoint = settingsState.settingsOfProvider[providerName]?.endpoint
+			if (endpoint) {
+				const domain = extractDomainForSettings(endpoint)
+				return `(${domain})`
+			}
+		}
+		return ''
+	}, [settingsState.settingsOfProvider])
 
 	// State to track which model's settings dialog is open
 	const [openSettingsModel, setOpenSettingsModel] = useState<{
@@ -388,12 +1152,16 @@ export const ModelDump = ({ filteredProviders }: { filteredProviders?: ProviderN
 		type: 'autodetected' | 'custom' | 'default'
 	} | null>(null);
 
-	// States for add model functionality
-	const [isAddModelOpen, setIsAddModelOpen] = useState(false);
-	const [showCheckmark, setShowCheckmark] = useState(false);
-	const [userChosenProviderName, setUserChosenProviderName] = useState<ProviderName | null>(null);
-	const [modelName, setModelName] = useState<string>('');
-	const [errorString, setErrorString] = useState('');
+	// State for Add Model Dialog
+	const [isAddModelDialogOpen, setIsAddModelDialogOpen] = useState(false)
+
+	// State for Edit Model Dialog
+	const [isEditModelDialogOpen, setIsEditModelDialogOpen] = useState(false)
+	const [editModelInfo, setEditModelInfo] = useState<{
+		modelName: string,
+		providerName: ProviderName,
+		type: 'autodetected' | 'custom' | 'default'
+	} | null>(null)
 
 	// a dump of all the enabled providers' models
 	const modelDump: (VoidStatefulModelInfo & { providerName: ProviderName, providerEnabled: boolean })[] = []
@@ -412,35 +1180,22 @@ export const ModelDump = ({ filteredProviders }: { filteredProviders?: ProviderN
 		return Number(b.providerEnabled) - Number(a.providerEnabled)
 	})
 
-	// Add model handler
-	const handleAddModel = () => {
-		if (!userChosenProviderName) {
-			setErrorString(t.pleaseSelectProvider());
-			return;
-		}
-		if (!modelName) {
-			setErrorString(t.pleaseEnterModelName());
-			return;
-		}
-
-		// Check if model already exists
-		if (settingsState.settingsOfProvider[userChosenProviderName].models.find(m => m.modelName === modelName)) {
-			setErrorString(t.modelAlreadyExists());
-			return;
-		}
-
-		settingsStateService.addModel(userChosenProviderName, modelName);
-		setShowCheckmark(true);
-		setTimeout(() => {
-			setShowCheckmark(false);
-			setIsAddModelOpen(false);
-			setUserChosenProviderName(null);
-			setModelName('');
-		}, 1500);
-		setErrorString('');
-	};
-
 	return <div className=''>
+		{/* Header row with title and add model entry */}
+		<div className='flex items-center justify-between mb-4'>
+			<h2 className={`text-3xl`}>{t.models()}</h2>
+			{/* Add Model Button - opens dialog */}
+			<div
+				className="text-void-fg-4 flex flex-nowrap text-nowrap items-center hover:brightness-110 cursor-pointer"
+				onClick={() => setIsAddModelDialogOpen(true)}
+			>
+				<div className="flex items-center gap-1">
+					<Plus size={16} />
+					<span>{t.addAModel()}</span>
+				</div>
+			</div>
+		</div>
+
 		{modelDump.map((m, i) => {
 			const { isHidden, type, modelName, providerName, providerEnabled } = m
 
@@ -479,7 +1234,25 @@ export const ModelDump = ({ filteredProviders }: { filteredProviders?: ProviderN
 				{/* right part is anything that fits */}
 				<div className="flex items-center gap-2 w-fit">
 
-					{/* Advanced Settings button (gear). Hide entirely when provider/model disabled. */}
+					{/* Edit Model button (graphical dialog). Hide entirely when provider/model disabled. */}
+					{disabled ? null : (
+						<div className="w-5 flex items-center justify-center">
+							<button
+								onClick={() => {
+									setEditModelInfo({ modelName, providerName, type })
+									setIsEditModelDialogOpen(true)
+								}}
+								data-tooltip-id='void-tooltip'
+								data-tooltip-place='right'
+								data-tooltip-content={t.editModel()}
+								className={`${hasOverrides ? '' : 'opacity-0 group-hover:opacity-100'} transition-opacity`}
+							>
+							<SettingsIcon size={14} className="text-void-fg-3 opacity-70 hover:opacity-100" />
+							</button>
+						</div>
+					)}
+
+					{/* Advanced Settings button (JSON). Hide entirely when provider/model disabled. */}
 					{disabled ? null : (
 						<div className="w-5 flex items-center justify-center">
 							<button
@@ -526,87 +1299,37 @@ export const ModelDump = ({ filteredProviders }: { filteredProviders?: ProviderN
 			</div>
 		})}
 
-		{/* Add Model Section */}
-		{showCheckmark ? (
-			<div className="mt-4">
-				<AnimatedCheckmarkButton text={t.added()} className="bg-[#0e70c0] text-white px-3 py-1 rounded-sm" />
+		{/* Add Model Section - bottom entry */}
+		<div
+			className="text-void-fg-4 flex flex-nowrap text-nowrap items-center hover:brightness-110 cursor-pointer mt-4"
+			onClick={() => setIsAddModelDialogOpen(true)}
+		>
+			<div className="flex items-center gap-1">
+				<Plus size={16} />
+				<span>{t.addAModel()}</span>
 			</div>
-		) : isAddModelOpen ? (
-			<div className="mt-4">
-				<form className="flex items-center gap-2">
-
-					{/* Provider dropdown */}
-					<ErrorBoundary>
-						<VoidCustomDropdownBox
-							options={providersToShow}
-							selectedOption={userChosenProviderName}
-							onChangeOption={(pn) => setUserChosenProviderName(pn)}
-							getOptionDisplayName={(pn) => pn ? displayInfoOfProviderName(pn).title : t.providerName()}
-							getOptionDropdownName={(pn) => pn ? displayInfoOfProviderName(pn).title : t.providerName()}
-							getOptionsEqual={(a, b) => a === b}
-							className="max-w-32 mx-2 w-full resize-none bg-void-bg-1 text-void-fg-1 placeholder:text-void-fg-3 border border-void-border-2 focus:border-void-border-1 py-1 px-2 rounded"
-							arrowTouchesText={false}
-						/>
-					</ErrorBoundary>
-
-					{/* Model name input */}
-					<ErrorBoundary>
-						<VoidSimpleInputBox
-							value={modelName}
-							compact={true}
-							onChangeValue={setModelName}
-							placeholder={t.modelName()}
-							className='max-w-32'
-						/>
-					</ErrorBoundary>
-
-					{/* Add button */}
-					<ErrorBoundary>
-						<AddButton
-							type='button'
-							disabled={!modelName || !userChosenProviderName}
-							onClick={handleAddModel}
-						/>
-					</ErrorBoundary>
-
-					{/* X button to cancel */}
-					<button
-						type="button"
-						onClick={() => {
-							setIsAddModelOpen(false);
-							setErrorString('');
-							setModelName('');
-							setUserChosenProviderName(null);
-						}}
-						className='text-void-fg-4'
-					>
-						<X className='size-4' />
-					</button>
-				</form>
-
-				{errorString && (
-					<div className='text-red-500 truncate whitespace-nowrap mt-1'>
-						{errorString}
-					</div>
-				)}
-			</div>
-		) : (
-			<div
-				className="text-void-fg-4 flex flex-nowrap text-nowrap items-center hover:brightness-110 cursor-pointer mt-4"
-				onClick={() => setIsAddModelOpen(true)}
-			>
-				<div className="flex items-center gap-1">
-					<Plus size={16} />
-					<span>{t.addAModel()}</span>
-				</div>
-			</div>
-		)}
+		</div>
 
 		{/* Model Settings Dialog */}
 		<SimpleModelSettingsDialog
 			isOpen={openSettingsModel !== null}
 			onClose={() => setOpenSettingsModel(null)}
 			modelInfo={openSettingsModel}
+		/>
+
+		{/* Add Model Dialog */}
+		<AddModelDialog
+			isOpen={isAddModelDialogOpen}
+			onClose={() => setIsAddModelDialogOpen(false)}
+			providersToShow={providersToShow}
+			getDetailForProvider={getDetailForProvider}
+		/>
+
+		{/* Edit Model Dialog */}
+		<EditModelDialog
+			isOpen={isEditModelDialogOpen}
+			onClose={() => setIsEditModelDialogOpen(false)}
+			modelInfo={editModelInfo}
 		/>
 	</div>
 }
@@ -634,6 +1357,18 @@ const ProviderSetting = ({ providerName, settingName, subTextMd }: { providerNam
 		voidSettingsService.setSettingOfProvider(providerName, settingName, newVal)
 	}, [voidSettingsService, providerName, settingName]);
 
+	// 判断是否是 OpenAI Compatible 系列的 provider（使用 string 类型转换避免 TypeScript 类型检查问题）
+	const isOpenAICompatible = (compatibleApiProviderNames as string[]).includes(providerName as string)
+
+	// 为 OpenAI Compatible 系列的 provider 生成 label（带必填标记：* 表示必填）
+	const getLabel = (): string | undefined => {
+		if (!isOpenAICompatible) return undefined
+		if (settingName === 'endpoint') return 'BASE_URL*'  // 必填
+		if (settingName === 'apiKey') return 'API_KEY*'        // 必填
+		if (settingName === 'headersJSON') return 'HEADERS' // 可选
+		return undefined
+	}
+
 	return <ErrorBoundary>
 		<div className='my-1'>
 			<VoidSimpleInputBox
@@ -642,6 +1377,7 @@ const ProviderSetting = ({ providerName, settingName, subTextMd }: { providerNam
 				placeholder={`${settingTitle} (${placeholder})`}
 				passwordBlur={isPasswordField}
 				compact={true}
+				label={getLabel()}
 			/>
 			{!subTextMd ? null : <div className='py-1 px-3 opacity-50 text-sm'>
 				{subTextMd}
@@ -758,6 +1494,55 @@ export const VoidProviderSettings = ({ providerNames }: { providerNames: Provide
 	</>
 }
 
+// 带折叠功能的 Compatible API Providers 设置组件
+// 默认展示前 2 个 provider，其余折叠，点击可展开
+export const CollapsibleCompatibleProviders = ({ providerNames }: { providerNames: ProviderName[] }) => {
+	const t = useVoidChatI18n();
+	const [isExpanded, setIsExpanded] = useState(false);
+
+	// 默认展示前 2 个，折叠其余的
+	const visibleCount = 2;
+	const visibleProviders = providerNames.slice(0, visibleCount);
+	const hiddenProviders = providerNames.slice(visibleCount);
+	const hiddenCount = hiddenProviders.length;
+
+	return (
+		<div>
+			{/* 默认展示的 provider */}
+			{visibleProviders.map(providerName =>
+				<SettingsForProvider key={providerName} providerName={providerName} showProviderTitle={true} showProviderSuggestions={true} />
+			)}
+
+			{/* 折叠的 provider */}
+			{hiddenCount > 0 && (
+				<div>
+					{/* 展开按钮 */}
+					<button
+						onClick={() => setIsExpanded(!isExpanded)}
+						className="flex items-center gap-2 text-void-fg-3 hover:text-void-fg-1 cursor-pointer py-2 px-1 my-2 rounded-sm hover:bg-void-bg-2 transition-colors"
+					>
+						{isExpanded ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
+						<span className="text-sm">
+							{isExpanded
+								? t.collapseProviders(hiddenCount)
+								: t.expandProviders(hiddenCount)}
+						</span>
+					</button>
+
+					{/* 展开后的内容 */}
+					{isExpanded && (
+						<div className="pl-2 border-l-2 border-void-border-2 ml-1">
+							{hiddenProviders.map(providerName =>
+								<SettingsForProvider key={providerName} providerName={providerName} showProviderTitle={true} showProviderSuggestions={true} />
+							)}
+						</div>
+					)}
+				</div>
+			)}
+		</div>
+	);
+}
+
 
 type TabName = 'models' | 'general'
 export const AutoDetectLocalModelsToggle = () => {
@@ -796,6 +1581,7 @@ export const AIInstructionsBox = () => {
 		initValue={voidSettingsState.globalSettings.aiInstructions}
 		placeholder={`Do not change my indentation or delete my comments. When writing TS or JS, do not add ;'s. Write new code using Rust if possible. `}
 		multiline
+		showBorder
 		onChangeText={(newText) => {
 			voidSettingsService.setGlobalSetting('aiInstructions', newText)
 		}}
@@ -935,11 +1721,23 @@ const MCPServerComponent = ({ name, server }: { name: string, server: MCPServer 
 	const t = useVoidChatI18n();
 	const accessor = useAccessor();
 	const mcpService = accessor.get('IMCPService');
+	const clipboardService = accessor.get('IClipboardService');
 
 	const voidSettings = useSettingsState()
 	const isOn = voidSettings.mcpUserStateOfName[name]?.isOn
 
+	const [commandCopied, setCommandCopied] = useState(false)
+
 	const removeUniquePrefix = (name: string) => name.split('_').slice(1).join('_')
+
+	const handleCopyCommand = async (e: React.MouseEvent) => {
+		e.stopPropagation()
+		if (server.command) {
+			await clipboardService.writeText(server.command)
+			setCommandCopied(true)
+			setTimeout(() => setCommandCopied(false), 2000)
+		}
+	}
 
 	return (
 		<div className="border border-void-border-2 bg-void-bg-1 py-3 px-4 rounded-sm my-2">
@@ -959,13 +1757,26 @@ const MCPServerComponent = ({ name, server }: { name: string, server: MCPServer 
 					<div className="text-sm font-medium text-void-fg-1">{name}</div>
 				</div>
 
-				{/* Right side - power toggle switch */}
-				<VoidSwitch
-					value={isOn ?? false}
-					size='xs'
-					disabled={server.status === 'error'}
-					onChange={() => mcpService.toggleServerIsOn(name, !isOn)}
-				/>
+				{/* Right side - refresh button and power toggle switch */}
+				<div className="flex items-center gap-2">
+					<button
+						onClick={() => mcpService.refreshMCPServer(name)}
+						className="p-1.5 hover:bg-void-bg-2 rounded transition-colors"
+						title={t.refresh()}
+						disabled={server.status === 'loading'}
+					>
+						<RefreshCw
+							size={14}
+							className={`text-void-fg-3 hover:text-void-fg-1 ${server.status === 'loading' ? 'animate-spin' : ''}`}
+						/>
+					</button>
+					<VoidSwitch
+						value={isOn ?? false}
+						size='xs'
+						disabled={server.status === 'error'}
+						onChange={() => mcpService.toggleServerIsOn(name, !isOn)}
+					/>
+				</div>
 			</div>
 
 			{/* Tools section */}
@@ -996,8 +1807,21 @@ const MCPServerComponent = ({ name, server }: { name: string, server: MCPServer 
 			{isOn && server.command && (
 				<div className="mt-3">
 					<div className="text-xs text-void-fg-3 mb-1">{t.command()}</div>
-					<div className="px-2 py-1 bg-void-bg-2 text-xs font-mono overflow-x-auto whitespace-nowrap text-void-fg-2 rounded-sm">
-						{server.command}
+					<div className="flex items-center gap-2">
+						<div className="flex-1 px-2 py-1 bg-void-bg-2 text-xs font-mono overflow-x-auto whitespace-nowrap text-void-fg-2 rounded-sm">
+							{server.command}
+						</div>
+						<button
+							onClick={handleCopyCommand}
+							className="flex-shrink-0 p-1.5 hover:bg-void-bg-2 rounded transition-colors"
+							title={t.copyToClipboard()}
+						>
+							{commandCopied ? (
+								<Check size={14} className="text-green-500" />
+							) : (
+								<Copy size={14} className="text-void-fg-3 hover:text-void-fg-1" />
+							)}
+						</button>
 					</div>
 				</div>
 			)}
@@ -1005,8 +1829,248 @@ const MCPServerComponent = ({ name, server }: { name: string, server: MCPServer 
 			{/* Error message if present */}
 			{server.error && (
 				<div className="mt-3">
-					<WarningBox text={server.error} />
+					<WarningBox text={server.error} multiline />
 				</div>
+			)}
+		</div>
+	);
+};
+
+// Skill Component
+const SkillComponent = ({ name, skill, onEdit, onDelete }: { name: string, skill: { name: string, level: 'project' | 'global', description?: string }, onEdit?: () => void, onDelete?: () => void }) => {
+	const t = useVoidChatI18n();
+	return (
+		<div className="border border-void-border-2 bg-void-bg-1 py-3 px-4 rounded-sm my-2">
+			<div className="flex items-center justify-between">
+				<div className="flex items-center gap-2">
+					<div className="text-sm font-medium text-void-fg-1">{name}</div>
+					<span className="text-xs px-2 py-0.5 bg-void-bg-2 text-void-fg-3 rounded-sm">
+						{skill.level === 'project' ? t.skillProject() : t.skillGlobal()}
+					</span>
+				</div>
+				<div className="flex items-center gap-1">
+					{onEdit && (
+						<button
+							onClick={onEdit}
+							className="text-void-fg-3 hover:text-blue-500 transition-colors p-1"
+							title={t.editSkill()}
+						>
+							<Pencil size={14} />
+						</button>
+					)}
+					{onDelete && (
+						<button
+							onClick={onDelete}
+							className="text-void-fg-3 hover:text-red-500 transition-colors p-1"
+							title={t.delete()}
+						>
+							<Trash2 size={14} />
+						</button>
+					)}
+				</div>
+			</div>
+			{skill.description && (
+				<div className="mt-2 text-xs text-void-fg-3">{skill.description}</div>
+			)}
+		</div>
+	);
+};
+
+// Skills List Component with dropdown menu
+const SkillsList = () => {
+	const t = useVoidChatI18n();
+	const accessor = useAccessor();
+	const skillService = accessor.get('ISkillService');
+	const skillServiceState = useSkillServiceState();
+	const metricsService = accessor.get('IMetricsService');
+
+	const [isMenuOpen, setIsMenuOpen] = useState(false);
+	const [isAdding, setIsAdding] = useState(false);
+	const [addError, setAddError] = useState<string | null>(null);
+	const menuRef = useRef<HTMLDivElement>(null);
+	const [selectedLevel, setSelectedLevel] = useState<'project' | 'global' | null>(null);
+
+	// 点击外部关闭菜单
+	useEffect(() => {
+		if (!isMenuOpen) return;
+		const handleClickOutside = (e: MouseEvent) => {
+			if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+				setIsMenuOpen(false);
+			}
+		};
+		document.addEventListener('mousedown', handleClickOutside);
+		return () => document.removeEventListener('mousedown', handleClickOutside);
+	}, [isMenuOpen]);
+
+	// 选择级别后打开文件选择对话框
+	useEffect(() => {
+		if (selectedLevel) {
+			handleFileSelect();
+		}
+	}, [selectedLevel]);
+
+	const handleFileSelect = async () => {
+		if (!selectedLevel) return;
+
+		setIsAdding(true);
+		setAddError(null);
+
+		const notificationService = accessor.get('INotificationService');
+		const notificationHelper = createNotificationHelper(notificationService);
+
+		try {
+			const fileDialogService = accessor.get('IFileDialogService');
+
+			// 弹出文件选择对话框
+			const uris = await fileDialogService.showOpenDialog({
+				title: t.selectZipFile(),
+				canSelectFiles: true,
+				canSelectFolders: false,
+				canSelectMany: false,
+				filters: [{ name: 'ZIP', extensions: ['zip'] }]
+			});
+
+			if (!uris || uris.length === 0) {
+				setIsAdding(false);
+				return;
+			}
+
+			const filePath = uris[0].fsPath;
+
+			// 调用技能服务添加技能
+			const result = await skillService.addSkill(filePath, selectedLevel);
+
+			if (result.success) {
+				notificationHelper.info(t.skillAddSuccess().replace('{0}', result.skillName));
+				// 记录导入技能事件
+				metricsService.capture('Skill Import', {
+					skillName: result.skillName,
+					location: selectedLevel,
+					success: true
+				});
+			} else {
+				notificationHelper.error(t.skillAddFailed().replace('{0}', result.error || 'Unknown error'));
+				setAddError(result.error || 'Failed to add skill');
+				// 记录导入技能失败事件
+				metricsService.capture('Skill Import', {
+					location: selectedLevel,
+					success: false,
+					error: result.error || 'Unknown error'
+				});
+			}
+		} catch (err) {
+			notificationHelper.error(t.skillAddFailed().replace('{0}', String(err)));
+			setAddError(String(err));
+		} finally {
+			setIsAdding(false);
+			setSelectedLevel(null);
+			setIsMenuOpen(false);
+		}
+	};
+
+	const handleMenuSelect = (level: 'project' | 'global') => {
+		setSelectedLevel(level);
+	};
+
+	const handleDeleteSkill = async (skillPath: string, location: 'project' | 'global') => {
+		const notificationService = accessor.get('INotificationService');
+		const notificationHelper = createNotificationHelper(notificationService);
+
+		try {
+			const result = await skillService.deleteSkill(skillPath, location);
+			if (result.success) {
+				notificationHelper.info(t.skillDeleteSuccess());
+				// 记录删除技能事件
+				metricsService.capture('Skill Delete', {
+					location,
+					success: true
+				});
+			} else {
+				notificationHelper.error(t.skillDeleteFailed().replace('{0}', result.error || 'Unknown error'));
+				// 记录删除技能失败事件
+				metricsService.capture('Skill Delete', {
+					location,
+					success: false,
+					error: result.error || 'Unknown error'
+				});
+			}
+		} catch (err) {
+			notificationHelper.error(t.skillDeleteFailed().replace('{0}', String(err)));
+			// 记录删除技能失败事件
+			metricsService.capture('Skill Delete', {
+				location,
+				success: false,
+				error: String(err)
+			});
+		}
+	};
+
+	const skills = skillServiceState.skills;
+
+	return (
+		<div className="my-2">
+			{addError && (
+				<div className="mb-2 p-2 bg-red-500/10 border border-red-500/20 rounded text-red-500 text-sm">
+					{addError}
+					<button onClick={() => setAddError(null)} className="ml-2 text-red-400 hover:text-red-300">×</button>
+				</div>
+			)}
+
+			{/* 添加技能按钮 */}
+			<div className='my-2 relative w-full max-w-48'>
+				<VoidButtonBgDarken 
+					className='px-4 py-1 w-full' 
+					disabled={isAdding}
+					onClick={() => setIsMenuOpen(!isMenuOpen)}
+				>
+					{isAdding ? '...' : t.addSkill()}
+				</VoidButtonBgDarken>
+
+				{/* 下拉菜单 */}
+				{isMenuOpen && (
+					<div
+						ref={menuRef}
+						className="absolute left-0 top-full mt-1 bg-void-bg-1 border-void-border-3 border rounded shadow-lg z-50"
+					>
+						<div className='overflow-auto max-h-80'>
+							<div
+								className="flex items-center py-1 pl-6 pr-6 cursor-pointer whitespace-nowrap transition-all duration-100 hover:bg-blue-500 hover:text-white/80"
+								onClick={() => handleMenuSelect('project')}
+							>
+								<span>{t.skillProject()}</span>
+							</div>
+							<div
+								className="flex items-center py-1 pl-6 pr-6 cursor-pointer whitespace-nowrap transition-all duration-100 hover:bg-blue-500 hover:text-white/80"
+								onClick={() => handleMenuSelect('global')}
+							>
+								<span>{t.skillGlobal()}</span>
+							</div>
+						</div>
+					</div>
+				)}
+			</div>
+
+			{skills.length === 0 ? (
+				<div className="text-void-fg-3 text-sm mt-2">
+					{t.noSkillsAvailable()}
+				</div>
+			) : (
+				skills.map((skill) => (
+					<SkillComponent
+						key={`${skill.skillPath}-${skill.location}`}
+						name={skill.name}
+						skill={{ name: skill.name, level: skill.location, description: skill.description }}
+						onEdit={() => {
+							skillService.openSkillFile(skill.skillPath);
+							// 记录编辑技能事件
+							metricsService.capture('Skill Edit', {
+								skillName: skill.name,
+								location: skill.location
+							});
+						}}
+						onDelete={() => handleDeleteSkill(skill.skillPath, skill.location)}
+					/>
+				))
 			)}
 		</div>
 	);
@@ -1049,10 +2113,12 @@ export const Settings = () => {
 
 	const navItems: { tab: Tab; label: string }[] = [
 		{ tab: 'models', label: t.models() },
+		{ tab: 'compatibleApiProviders', label: t.compatibleApiProviders() },
 		{ tab: 'localProviders', label: t.localProviders() },
 		{ tab: 'providers', label: t.mainProviders() },
 		{ tab: 'featureOptions', label: t.featureOptions() },
 		{ tab: 'general', label: t.general() },
+		{ tab: 'skills', label: t.skills() },
 		{ tab: 'mcp', label: t.mcp() },
 		{ tab: 'all', label: t.allSettings() },
 	];
@@ -1135,7 +2201,7 @@ export const Settings = () => {
 
 
 	return (
-		<div className={`@@void-scope ${isDark ? 'dark' : ''}`} style={{ height: '100%', width: '100%', overflow: 'auto' }}>
+		<div className={`@@void-scope ${isDark ? 'void-dark' : ''}`} style={{ height: '100%', width: '100%', overflow: 'auto' }}>
 			<div className="flex flex-col md:flex-row w-full gap-6 max-w-[900px] mx-auto mb-32" style={{ minHeight: '80vh' }}>
 				{/* ──────────────  SIDEBAR  ────────────── */}
 
@@ -1189,11 +2255,22 @@ export const Settings = () => {
 							{/* Models section (formerly FeaturesTab) */}
 							<div className={shouldShowTab('models') ? `` : 'hidden'}>
 								<ErrorBoundary>
-									<h2 className={`text-3xl mb-2`}>{t.models()}</h2>
 									<ModelDump />
 									<div className='w-full h-[1px] my-4' />
 									<AutoDetectLocalModelsToggle />
 									<RefreshableModels />
+								</ErrorBoundary>
+							</div>
+
+							{/* Compatible API Providers section */}
+							<div className={shouldShowTab('compatibleApiProviders') ? `` : 'hidden'}>
+								<ErrorBoundary>
+									<h2 className={`text-3xl mb-2`}>{t.compatibleApiProviders()}</h2>
+									<h3 className={`text-void-fg-3 mb-2`}>
+										<ChatMarkdownRender string={t.compatibleApiProvidersDesc()} chatMessageLocation={undefined} />
+									</h3>
+
+									<CollapsibleCompatibleProviders providerNames={compatibleApiProviderNames} />
 								</ErrorBoundary>
 							</div>
 
@@ -1368,6 +2445,46 @@ export const Settings = () => {
 														<span className='text-void-fg-3 text-xs pointer-events-none'>{t.showJsonDebug()}</span>
 													</div>
 												</ErrorBoundary>
+
+												{/* Enable Markdown Cache Switch */}
+												<ErrorBoundary>
+													<div className='text-void-fg-3 text-xs my-1'>{t.enableMarkdownCacheDesc()}</div>
+													<div className='flex items-center gap-x-2 my-2'>
+														<VoidSwitch
+															size='xs'
+															value={settingsState.globalSettings.enableMarkdownCache}
+															onChange={(newVal) => voidSettingsService.setGlobalSetting('enableMarkdownCache', newVal)}
+														/>
+														<span className='text-void-fg-3 text-xs pointer-events-none'>{t.enableMarkdownCache()}</span>
+														<span className='text-void-fg-4 text-xs'>{t.enableMarkdownCacheRestart()}</span>
+													</div>
+												</ErrorBoundary>
+
+												{/* Reset Visible On Send Switch */}
+												<ErrorBoundary>
+													<div className='text-void-fg-3 text-xs my-1'>{t.resetVisibleOnSendDesc()}</div>
+													<div className='flex items-center gap-x-2 my-2'>
+														<VoidSwitch
+															size='xs'
+															value={settingsState.globalSettings.resetVisibleOnSend}
+															onChange={(newVal) => voidSettingsService.setGlobalSetting('resetVisibleOnSend', newVal)}
+														/>
+														<span className='text-void-fg-3 text-xs pointer-events-none'>{t.resetVisibleOnSend()}</span>
+													</div>
+												</ErrorBoundary>
+
+												{/* Show All History Threads Switch */}
+												<ErrorBoundary>
+													<div className='text-void-fg-3 text-xs my-1'>{t.showAllHistoryThreadsDesc()}</div>
+													<div className='flex items-center gap-x-2 my-2'>
+														<VoidSwitch
+															size='xs'
+															value={settingsState.globalSettings.showAllHistoryThreads}
+															onChange={(newVal) => voidSettingsService.setGlobalSetting('showAllHistoryThreads', newVal)}
+														/>
+														<span className='text-void-fg-3 text-xs pointer-events-none'>{t.showAllHistoryThreads()}</span>
+													</div>
+												</ErrorBoundary>
 											</div>
 
 											<div className='text-sm text-void-fg-3 mt-1'>{t.defaultLanguageDesc()}</div>
@@ -1384,6 +2501,42 @@ export const Settings = () => {
 													/>
 												</ErrorBoundary>
 											</div>
+
+											<div className='text-sm text-void-fg-3 mt-3'>{t.responseLanguageDesc()}</div>
+											<div className='my-2'>
+												<ErrorBoundary>
+													<VoidCustomDropdownBox
+														className='text-xs text-void-fg-3 bg-void-bg-1 border border-void-border-1 rounded p-0.5 px-1'
+														options={['auto', 'zh', 'en', 'ja', 'ko', 'fr', 'de', 'es', 'ru', 'pt'] as ResponseLanguage[]}
+														selectedOption={settingsState.globalSettings.responseLanguage}
+														onChangeOption={(newVal) => {
+															voidSettingsService.setGlobalSetting('responseLanguage', newVal)
+															// 当选择新语言时，自动设置对应的默认提示词
+															voidSettingsService.setGlobalSetting('responseLanguagePrompt', defaultResponseLanguagePromptOfLanguage[newVal])
+														}}
+														getOptionDisplayName={(val) => val === 'auto' ? t.responseLanguageAuto() : val === 'zh' ? t.responseLanguageZh() : val === 'en' ? t.responseLanguageEn() : val === 'ja' ? t.responseLanguageJa() : val === 'ko' ? t.responseLanguageKo() : val === 'fr' ? t.responseLanguageFr() : val === 'de' ? t.responseLanguageDe() : val === 'es' ? t.responseLanguageEs() : val === 'ru' ? t.responseLanguageRu() : t.responseLanguagePt()}
+														getOptionDropdownName={(val) => val === 'auto' ? t.responseLanguageAuto() : val === 'zh' ? t.responseLanguageZh() : val === 'en' ? t.responseLanguageEn() : val === 'ja' ? t.responseLanguageJa() : val === 'ko' ? t.responseLanguageKo() : val === 'fr' ? t.responseLanguageFr() : val === 'de' ? t.responseLanguageDe() : val === 'es' ? t.responseLanguageEs() : val === 'ru' ? t.responseLanguageRu() : t.responseLanguagePt()}
+														getOptionsEqual={(a, b) => a === b}
+													/>
+												</ErrorBoundary>
+											</div>
+											{settingsState.globalSettings.responseLanguage !== 'auto' && (
+												<div className='my-3'>
+													<div className='text-xs text-void-fg-3 mb-1'>{t.responseLanguagePromptDesc()}</div>
+													<ErrorBoundary>
+														<VoidInputBox2
+															className='min-h-[60px] p-2 rounded-sm text-xs'
+															initValue={settingsState.globalSettings.responseLanguagePrompt}
+															placeholder={defaultResponseLanguagePromptOfLanguage[settingsState.globalSettings.responseLanguage]}
+															multiline
+															showBorder
+															onChangeText={(newText) => {
+																voidSettingsService.setGlobalSetting('responseLanguagePrompt', newText)
+															}}
+														/>
+													</ErrorBoundary>
+												</div>
+											)}
 										</div>
 
 										<div className='w-full'>
@@ -1568,7 +2721,18 @@ export const Settings = () => {
 
 							</div>
 
-
+							{/* Skills section */}
+							<div className={shouldShowTab('skills') ? `` : 'hidden'}>
+								<ErrorBoundary>
+									<h2 className='text-3xl mb-2'>{t.skills()}</h2>
+									<h4 className={`text-void-fg-3 mb-4`}>
+										<ChatMarkdownRender inPTag={true} string={t.skillsDesc()} chatMessageLocation={undefined} />
+									</h4>
+									<ErrorBoundary>
+										<SkillsList />
+									</ErrorBoundary>
+								</ErrorBoundary>
+							</div>
 
 							{/* MCP section */}
 							<div className={shouldShowTab('mcp') ? `` : 'hidden'}>

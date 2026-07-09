@@ -93,12 +93,12 @@ class OpeningManagedMessagePassing {
 		this.socket.addEventListener('error', (e) => closeEmitter.fire(new Error(String(e))));
 		this.socket.addEventListener('message', async (e) => {
 			const arrayBuffer = await e.data.arrayBuffer();
-			dataEmitter.fire(new Uint8Array(arrayBuffer));
+			dataEmitter.fire(new Uint8Array(arrayBuffer as ArrayBuffer));
 		});
 		this.socket.addEventListener('open', () => {
 			while (this.bufferedData.length > 0) {
 				const first = this.bufferedData.shift()!;
-				this.socket.send(first);
+				this.socket.send((first.buffer as ArrayBuffer).slice(first.byteOffset, first.byteOffset + first.byteLength));
 			}
 			this.isOpen = true;
 
@@ -124,7 +124,7 @@ class OpeningManagedMessagePassing {
 			this.bufferedData.push(d);
 			return;
 		}
-		this.socket.send(d);
+		this.socket.send((d.buffer as ArrayBuffer).slice(d.byteOffset, d.byteOffset + d.byteLength));
 	}
 
 	public end(): void {

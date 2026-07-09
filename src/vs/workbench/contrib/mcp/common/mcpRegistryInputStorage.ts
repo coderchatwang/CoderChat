@@ -163,9 +163,9 @@ export class McpRegistryInputStorage extends Disposable {
 			const encrypted = decodeBase64(this._record.value.secrets.value);
 
 			const decrypted = await crypto.subtle.decrypt(
-				{ name: MCP_ENCRYPTION_KEY_ALGORITHM, iv: iv.buffer },
+				{ name: MCP_ENCRYPTION_KEY_ALGORITHM, iv: new Uint8Array(iv.buffer.slice(iv.byteOffset, iv.byteOffset + iv.byteLength)) },
 				key,
-				encrypted.buffer,
+				new Uint8Array(encrypted.buffer.slice(encrypted.byteOffset, encrypted.byteOffset + encrypted.byteLength)),
 			);
 
 			const unsealedSecrets = JSON.parse(new TextDecoder().decode(decrypted));

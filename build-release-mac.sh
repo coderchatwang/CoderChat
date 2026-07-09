@@ -1,9 +1,9 @@
 #!/usr/bin/env zsh
-# Void Release Build Script
-# Purpose: Build a production-ready release of Void for macOS
+# CoderChat Release Build Script
+# Purpose: Build a production-ready release of CoderChat for macOS
 
 echo "========================================"
-echo "  Void Release Builder"
+echo "  CoderChat Release Builder"
 echo "========================================"
 echo ""
 
@@ -26,14 +26,14 @@ echo ""
 echo "[1/5] Configuring environment..."
 NODE_VERSION=$(node --version 2>/dev/null)
 if [[ $? -ne 0 ]]; then
-    echo "Error: Node.js not found. Please install Node.js v20.18.2 via 'sudo n 20.18.2'"
+    echo "Error: Node.js not found. Please install Node.js v22.18.0 via 'sudo n 22.18.0'"
     exit 1
 fi
 
-REQUIRED="v20.18.2"
+REQUIRED="v22.18.0"
 if [[ "$NODE_VERSION" != "$REQUIRED" ]]; then
     echo "Switching to Node.js $REQUIRED via n..."
-    sudo n 20.18.2
+    sudo n 22.18.0
 fi
 
 NODE_VERSION=$(node --version)
@@ -51,7 +51,7 @@ echo ""
 
 # Step 3: Compile TypeScript
 echo "[3/5] Compiling TypeScript..."
-npm run compile
+NODE_OPTIONS="--max-old-space-size=8192" npm run compile
 if [[ $? -ne 0 ]]; then
     echo "Error: TypeScript compilation failed"
     exit 1
@@ -78,7 +78,7 @@ else
     echo "Detected Intel (x64), building for darwin-x64..."
 fi
 
-npm run gulp $BUILD_TARGET
+NODE_OPTIONS="--max-old-space-size=8192" npm run gulp $BUILD_TARGET
 
 # Check result
 if [[ $? -eq 0 ]]; then

@@ -149,6 +149,12 @@ module.exports = {
 					'checkbox-border': 'var(--vscode-checkbox-border)',
 					'checkbox-select-bg': 'var(--vscode-checkbox-selectBackground)',
 
+					// input option colors (for switch/toggle)
+					'input-activeOptionBg': 'var(--vscode-inputOption-activeBackground)',
+					'input-activeOptionFg': 'var(--vscode-inputOption-activeForeground)',
+					'input-activeOptionBorder': 'var(--vscode-inputOption-activeBorder)',
+					'input-optionHoverBg': 'var(--vscode-inputOption-hoverBackground)',
+
 					// sidebar colors
 					'sidebar-bg': 'var(--vscode-sideBar-background)',
 					'sidebar-fg': 'var(--vscode-sideBar-foreground)',

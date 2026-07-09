@@ -20,6 +20,7 @@ import { Disposable } from '../../../../base/common/lifecycle.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { Lazy } from '../../../../base/common/lazy.js';
 import { IOpenerService } from '../../../../platform/opener/common/opener.js';
+import { IMetricsService } from '../../../contrib/void/common/metricsService.js';
 
 export class DialogHandlerContribution extends Disposable implements IWorkbenchContribution {
 
@@ -41,12 +42,13 @@ export class DialogHandlerContribution extends Disposable implements IWorkbenchC
 		@IProductService productService: IProductService,
 		@IClipboardService clipboardService: IClipboardService,
 		@INativeHostService nativeHostService: INativeHostService,
-		@IOpenerService openerService: IOpenerService
+		@IOpenerService openerService: IOpenerService,
+		@IMetricsService metricsService: IMetricsService
 	) {
 		super();
 
 		this.browserImpl = new Lazy(() => new BrowserDialogHandler(logService, layoutService, keybindingService, instantiationService, productService, clipboardService, openerService));
-		this.nativeImpl = new Lazy(() => new NativeDialogHandler(logService, nativeHostService, productService, clipboardService));
+		this.nativeImpl = new Lazy(() => new NativeDialogHandler(logService, nativeHostService, productService, clipboardService, metricsService));
 
 		this.model = (this.dialogService as DialogService).model;
 

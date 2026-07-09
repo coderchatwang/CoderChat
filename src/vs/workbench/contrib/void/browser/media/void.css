@@ -202,3 +202,23 @@
 .void-scrollable-element *::-webkit-scrollbar-corner {
 	background-color: var(--void-bg-3) !important;
 }
+
+/* Remove button for recent items in watermark */
+.void-link .remove-recent-button {
+	visibility: hidden;
+	padding: 3px;
+	border-radius: 5px;
+	cursor: pointer;
+	color: var(--vscode-foreground);
+	opacity: 0.6;
+	font-size: 16px;
+}
+
+.void-link:hover .remove-recent-button {
+	visibility: visible;
+}
+
+.void-link .remove-recent-button:hover {
+	opacity: 1;
+	background-color: var(--vscode-toolbar-hoverBackground);
+}

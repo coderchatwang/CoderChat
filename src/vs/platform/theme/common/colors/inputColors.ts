@@ -20,6 +20,10 @@ export const inputBackground = registerColor('input.background',
 	{ dark: '#3C3C3C', light: Color.white, hcDark: Color.black, hcLight: Color.white },
 	nls.localize('inputBoxBackground', "Input box background."));
 
+export const inputBackgroundRevert = registerColor('input.background',
+	{ dark: Color.white, light: '#3C3C3C', hcDark: Color.white, hcLight: Color.black },
+	nls.localize('inputBackgroundRevert', "Input box background revert."));
+
 export const inputForeground = registerColor('input.foreground',
 	foreground,
 	nls.localize('inputBoxForeground', "Input box foreground."));

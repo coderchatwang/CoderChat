@@ -10,7 +10,7 @@ import type { ILigatureOptions, LigaturesAddon as LigaturesAddonType } from '@xt
 import type { WebglAddon as WebglAddonType } from '@xterm/addon-webgl';
 import type { SerializeAddon as SerializeAddonType } from '@xterm/addon-serialize';
 import type { ImageAddon as ImageAddonType } from '@xterm/addon-image';
-import type { ClipboardAddon as ClipboardAddonType, ClipboardSelectionType } from '@xterm/addon-clipboard';
+import type { ClipboardAddon as ClipboardAddonType } from '@xterm/addon-clipboard';
 import * as dom from '../../../../../base/browser/dom.js';
 import { IXtermCore } from '../xterm-private.js';
 import { IConfigurationService } from '../../../../../platform/configuration/common/configuration.js';
@@ -222,14 +222,9 @@ export class XtermTerminal extends Disposable implements IXtermTerminal, IDetach
 			macOptionIsMeta: config.macOptionIsMeta,
 			macOptionClickForcesSelection: config.macOptionClickForcesSelection,
 			rightClickSelectsWord: config.rightClickBehavior === 'selectWord',
-			fastScrollModifier: 'alt',
 			fastScrollSensitivity: config.fastScrollSensitivity,
 			scrollSensitivity: config.mouseWheelScrollSensitivity,
 			wordSeparator: config.wordSeparators,
-			overviewRuler: {
-				width: 14,
-				showTopBorder: true,
-			},
 			ignoreBracketedPasteMode: config.ignoreBracketedPasteMode,
 			rescaleOverlappingGlyphs: config.rescaleOverlappingGlyphs,
 			windowOptions: {
@@ -283,10 +278,10 @@ export class XtermTerminal extends Disposable implements IXtermTerminal, IDetach
 				return;
 			}
 			this._clipboardAddon = this._instantiationService.createInstance(ClipboardAddon, undefined, {
-				async readText(type: ClipboardSelectionType): Promise<string> {
+				async readText(type: string): Promise<string> {
 					return _clipboardService.readText(type === 'p' ? 'selection' : 'clipboard');
 				},
-				async writeText(type: ClipboardSelectionType, text: string): Promise<void> {
+				async writeText(type: string, text: string): Promise<void> {
 					return _clipboardService.writeText(text, type === 'p' ? 'selection' : 'clipboard');
 				}
 			});
@@ -440,13 +435,8 @@ export class XtermTerminal extends Disposable implements IXtermTerminal, IDetach
 		this.raw.options.macOptionClickForcesSelection = config.macOptionClickForcesSelection;
 		this.raw.options.rightClickSelectsWord = config.rightClickBehavior === 'selectWord';
 		this.raw.options.wordSeparator = config.wordSeparators;
-		this.raw.options.customGlyphs = config.customGlyphs;
 		this.raw.options.ignoreBracketedPasteMode = config.ignoreBracketedPasteMode;
 		this.raw.options.rescaleOverlappingGlyphs = config.rescaleOverlappingGlyphs;
-		this.raw.options.overviewRuler = {
-			width: 14,
-			showTopBorder: true,
-		};
 		this._updateSmoothScrolling();
 		if (this._attached) {
 			if (this._attached.options.enableGpu) {

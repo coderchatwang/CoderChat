@@ -16,6 +16,7 @@ import { ServicesAccessor } from '../../../platform/instantiation/common/instant
 import { KeybindingWeight } from '../../../platform/keybinding/common/keybindingsRegistry.js';
 import { Categories } from '../../../platform/action/common/actionCommonCategories.js';
 import { ICommandService } from '../../../platform/commands/common/commands.js';
+import { IsMacNativeContext } from '../../../platform/contextkey/common/contextkeys.js';
 
 class KeybindingsReferenceAction extends Action2 {
 
@@ -331,6 +332,34 @@ class GetStartedWithAccessibilityFeatures extends Action2 {
 	}
 }
 
+class CheckForUpdatesAction extends Action2 {
+
+	static readonly ID = 'workbench.action.checkForUpdates';
+
+	constructor() {
+		super({
+			id: CheckForUpdatesAction.ID,
+			title: {
+				...localize2('checkForUpdates', "Check for Updates"),
+				mnemonicTitle: localize({ key: 'miCheckForUpdates', comment: ['&& denotes a mnemonic'] }, "Check for &&Updates"),
+			},
+			category: Categories.Help,
+			f1: true,
+			menu: {
+				id: MenuId.MenubarHelpMenu,
+				group: 'z_about',
+				order: 0,
+				when: IsMacNativeContext.toNegated()
+			}
+		});
+	}
+
+	run(accessor: ServicesAccessor): void {
+		const openerService = accessor.get(IOpenerService);
+		openerService.open(URI.parse('https://github.com/coderchatwang/CoderChat/releases'));
+	}
+}
+
 class GetStartedWithCopilot extends Action2 {
 
 	static readonly ID = 'workbench.action.getStartedWithCopilot';
@@ -398,3 +427,5 @@ registerAction2(GetStartedWithAccessibilityFeatures);
 if (GetStartedWithCopilot.AVAILABE) {
 	registerAction2(GetStartedWithCopilot);
 }
+
+registerAction2(CheckForUpdatesAction);

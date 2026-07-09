@@ -2,6 +2,7 @@
 	"$schema": "vscode://schemas/color-theme",
 	"name": "Dark (Visual Studio)",
 	"colors": {
+		"input.background": "#3C3C3C",
 		"checkbox.border": "#6B6B6B",
 		"editor.background": "#1E1E1E",
 		"editor.foreground": "#D4D4D4",

@@ -20,15 +20,15 @@ suite('vscode API - file system', () => {
 		const reg = vscode.workspace.registerFileSystemProvider(fs.scheme, fs, { isReadonly: true });
 		let error: any | undefined;
 		try {
-			await vscode.workspace.fs.writeFile(vscode.Uri.parse('this-fs:/foo.txt'), Buffer.from('Hello World'));
-		} catch (e) {
-			error = e;
-		}
-		assert.strictEqual(vscode.workspace.fs.isWritableFileSystem('this-fs'), false);
-		assert.strictEqual(error instanceof vscode.FileSystemError, true);
-		const fileError: vscode.FileSystemError = error;
-		assert.strictEqual(fileError.code, 'NoPermissions');
-		reg.dispose();
+		await vscode.workspace.fs.writeFile(vscode.Uri.parse('this-fs:/foo.txt'), Buffer.from('Hello World') as Uint8Array);
+	} catch (e) {
+		error = e;
+	}
+	assert.strictEqual(vscode.workspace.fs.isWritableFileSystem('this-fs'), false);
+	assert.strictEqual(error instanceof vscode.FileSystemError, true);
+	const fileError: vscode.FileSystemError = error;
+	assert.strictEqual(fileError.code, 'NoPermissions');
+	reg.dispose();
 	});
 
 	test('readonly file system - markdown', async function () {
@@ -36,7 +36,7 @@ suite('vscode API - file system', () => {
 		const reg = vscode.workspace.registerFileSystemProvider(fs.scheme, fs, { isReadonly: new vscode.MarkdownString('This file is readonly.') });
 		let error: any | undefined;
 		try {
-			await vscode.workspace.fs.writeFile(vscode.Uri.parse('this-fs:/foo.txt'), Buffer.from('Hello World'));
+			await vscode.workspace.fs.writeFile(vscode.Uri.parse('this-fs:/foo.txt'), Buffer.from('Hello World') as Uint8Array);
 		} catch (e) {
 			error = e;
 		}
@@ -52,7 +52,7 @@ suite('vscode API - file system', () => {
 		const reg = vscode.workspace.registerFileSystemProvider(fs.scheme, fs);
 		let error: any | undefined;
 		try {
-			await vscode.workspace.fs.writeFile(vscode.Uri.parse('this-fs:/foo.txt'), Buffer.from('Hello World'));
+			await vscode.workspace.fs.writeFile(vscode.Uri.parse('this-fs:/foo.txt'), Buffer.from('Hello World') as Uint8Array);
 		} catch (e) {
 			error = e;
 		}

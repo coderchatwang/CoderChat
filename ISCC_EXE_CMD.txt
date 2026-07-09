@@ -1,0 +1,12 @@
+; x64 系统级安装 (默认)
+ISCC.exe coderchat-setup.iss  /dMajorMinorPatch=1.3.0 /dBuildNumber=0049
+
+; x64 用户级安装
+ISCC.exe coderchat-setup.iss /dArch=x64 /dInstallTarget=user /dMajorMinorPatch=1.3.0 /dBuildNumber=0049
+
+; arm64 系统级安装
+ISCC.exe coderchat-setup.iss /dArch=arm64 /dInstallTarget=system /dMajorMinorPatch=1.3.0 /dBuildNumber=0049
+
+; arm64 用户级安装
+ISCC.exe coderchat-setup.iss /dArch=arm64 /dInstallTarget=user /dMajorMinorPatch=1.3.0 /dBuildNumber=0049
+

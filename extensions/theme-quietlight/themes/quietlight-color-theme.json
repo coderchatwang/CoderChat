@@ -479,6 +479,7 @@
       	}
 	],
 	"colors": {
+		"input.background": "#FFFFFF",
 		"focusBorder": "#9769dc",
 		"pickerGroup.foreground": "#A6B39B",
 		"pickerGroup.border": "#749351",

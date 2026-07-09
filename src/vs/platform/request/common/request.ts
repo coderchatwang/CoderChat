@@ -146,9 +146,13 @@ export const USER_LOCAL_AND_REMOTE_SETTINGS = [
 	'http.proxyAuthorization',
 	'http.proxySupport',
 	'http.systemCertificates',
+	'http.systemCertificatesNode',
 	'http.experimental.systemCertificatesV2',
 	'http.fetchAdditionalSupport',
+	'http.webSocketAdditionalSupport',
 ];
+
+export const systemCertificatesNodeDefault = false;
 
 let proxyConfiguration: IConfigurationNode[] = [];
 let previousUseHostProxy: boolean | undefined = undefined;
@@ -256,10 +260,26 @@ function registerProxyConfigurations(useHostProxy = true, useHostProxyDefault = 
 					markdownDescription: localize('systemCertificatesV2', "Controls whether experimental loading of CA certificates from the OS should be enabled. This uses a more general approach than the default implementation. When during [remote development](https://aka.ms/vscode-remote) the {0} setting is disabled this setting can be configured in the local and the remote settings separately.", '`#http.useLocalProxyConfiguration#`'),
 					restricted: true
 				},
+				'http.systemCertificatesNode': {
+					type: 'boolean',
+					tags: ['experimental'],
+					default: systemCertificatesNodeDefault,
+					markdownDescription: localize('systemCertificatesNode', "Controls whether system certificates should be loaded using Node.js built-in support. Reload the window after changing this setting. When during [remote development](https://aka.ms/vscode-remote) the {0} setting is disabled this setting can be configured in the local and the remote settings separately.", '`#http.useLocalProxyConfiguration#`'),
+					restricted: true,
+					experiment: {
+						mode: 'auto'
+					}
+				},
 				'http.fetchAdditionalSupport': {
 					type: 'boolean',
 					default: true,
 					markdownDescription: localize('fetchAdditionalSupport', "Controls whether Node.js' fetch implementation should be extended with additional support. Currently proxy support ({1}) and system certificates ({2}) are added when the corresponding settings are enabled. When during [remote development](https://aka.ms/vscode-remote) the {0} setting is disabled this setting can be configured in the local and the remote settings separately.", '`#http.useLocalProxyConfiguration#`', '`#http.proxySupport#`', '`#http.systemCertificates#`'),
+					restricted: true
+				},
+				'http.webSocketAdditionalSupport': {
+					type: 'boolean',
+					default: true,
+					markdownDescription: localize('webSocketAdditionalSupport', "Controls whether the built-in WebSocket implementation should be extended with additional support. Currently proxy support ({1}) and system certificates ({2}) are added when the corresponding settings are enabled. When during [remote development](https://aka.ms/vscode-remote) the {0} setting is disabled this setting can be configured in the local and the remote settings separately.", '`#http.useLocalProxyConfiguration#`', '`#http.proxySupport#`', '`#http.systemCertificates#`'),
 					restricted: true
 				}
 			}

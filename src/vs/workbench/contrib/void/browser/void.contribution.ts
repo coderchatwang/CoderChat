@@ -37,6 +37,11 @@ import './convertToLLMMessageWorkbenchContrib.js'
 import './toolsService.js'
 import './terminalToolService.js'
 
+// skills
+import '../common/skillService.js'
+
+// register Thread History Storage (must be before chatThreadService)
+import './chatThreadStorageServiceImpl.js'
 // register Thread History
 import './chatThreadService.js'
 

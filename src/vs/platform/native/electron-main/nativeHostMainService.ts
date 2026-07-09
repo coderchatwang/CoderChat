@@ -724,7 +724,8 @@ export class NativeHostMainService extends Disposable implements INativeHostMain
 		const window = this.windowById(options?.targetWindowId, windowId);
 		const captured = await window?.win?.webContents.capturePage();
 
-		return captured?.toJPEG(95);
+		const buf = captured?.toJPEG(95);
+		return buf?.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
 	}
 
 	//#endregion

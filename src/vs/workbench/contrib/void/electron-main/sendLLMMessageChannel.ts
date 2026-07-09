@@ -9,6 +9,7 @@
 import { IServerChannel } from '../../../../base/parts/ipc/common/ipc.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { EventLLMMessageOnTextParams, EventLLMMessageOnErrorParams, EventLLMMessageOnFinalMessageParams, EventLLMMessageOnOptionsCreatedParams, MainSendLLMMessageParams, AbortRef, SendLLMMessageParams, MainLLMMessageAbortParams, ModelListParams, EventModelListOnSuccessParams, EventModelListOnErrorParams, OllamaModelResponse, OpenaiCompatibleModelResponse, MainModelListParams, ProxyConfig, } from '../common/sendLLMMessageTypes.js';
+import { ProviderName } from '../common/voidSettingsTypes.js';
 import { sendLLMMessage } from './llmMessage/sendLLMMessage.js'
 import { IMetricsService } from '../common/metricsService.js';
 import { sendLLMMessageToProviderImplementation } from './llmMessage/sendLLMMessage.impl.js';
@@ -163,6 +164,7 @@ export class LLMMessageChannel implements IServerChannel {
 
 	_callOpenAICompatibleList = (params: MainModelListParams<OpenaiCompatibleModelResponse>) => {
 		const { requestId, providerName } = params
+		const providerName_: ProviderName = providerName
 		const emitters = this.listEmitters.openaiCompat
 		const proxyConfig = this.getProxyConfig();
 		const mainThreadParams: ModelListParams<OpenaiCompatibleModelResponse> = {
@@ -171,7 +173,7 @@ export class LLMMessageChannel implements IServerChannel {
 			onSuccess: (p) => { emitters.success.fire({ requestId, ...p }); },
 			onError: (p) => { emitters.error.fire({ requestId, ...p }); },
 		}
-		sendLLMMessageToProviderImplementation[providerName].list(mainThreadParams)
+		sendLLMMessageToProviderImplementation[providerName_].list(mainThreadParams)
 	}
 
 

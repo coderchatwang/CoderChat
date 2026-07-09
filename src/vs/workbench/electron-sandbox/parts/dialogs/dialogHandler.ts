@@ -13,6 +13,7 @@ import { INativeHostService } from '../../../../platform/native/common/native.js
 import { IProductService } from '../../../../platform/product/common/productService.js';
 import { process } from '../../../../base/parts/sandbox/electron-sandbox/globals.js';
 import { getActiveWindow } from '../../../../base/browser/dom.js';
+import { IMetricsService } from '../../../contrib/void/common/metricsService.js';
 
 export class NativeDialogHandler extends AbstractDialogHandler {
 
@@ -20,7 +21,8 @@ export class NativeDialogHandler extends AbstractDialogHandler {
 		@ILogService private readonly logService: ILogService,
 		@INativeHostService private readonly nativeHostService: INativeHostService,
 		@IProductService private readonly productService: IProductService,
-		@IClipboardService private readonly clipboardService: IClipboardService
+		@IClipboardService private readonly clipboardService: IClipboardService,
+		@IMetricsService private readonly metricsService: IMetricsService
 	) {
 		super();
 	}
@@ -70,33 +72,35 @@ export class NativeDialogHandler extends AbstractDialogHandler {
 	}
 
 	async about(): Promise<void> {
-		let version = this.productService.version;
+
+		let vSCodeVersion = this.productService.version;
 		if (this.productService.target) {
-			version = `${version} (${this.productService.target} setup)`;
+			vSCodeVersion = `${vSCodeVersion} (${this.productService.target} setup)`;
 		} else if (this.productService.darwinUniversalAssetId) {
-			version = `${version} (Universal)`;
+			vSCodeVersion = `${vSCodeVersion} (Universal)`;
 		}
 
-		const osProps = await this.nativeHostService.getOSProperties();
+		const voidVersion = this.productService.voidVersion || 'Unknown'
+		const commit = this.productService.commit || 'Unknown'
+		const date = this.productService.date
+			? `${this.productService.date} (${fromNow(new Date(this.productService.date), true)})`
+			: 'Unknown'
+		const dateToCopy = this.productService.date || 'Unknown'
 
-		const detailString = (useAgo: boolean): string => {
-			return localize({ key: 'aboutDetail', comment: ['Electron, Chromium, Node.js and V8 are product names that need no translation'] },
-				"VSCode Version: {0}\nVoid Version: {1}\nCommit: {2}\nDate: {3}\nElectron: {4}\nElectronBuildId: {5}\nChromium: {6}\nNode.js: {7}\nV8: {8}\nOS: {9}",
-				version,
-				this.productService.voidVersion || 'Unknown', // Void added this
-				this.productService.commit || 'Unknown',
-				this.productService.date ? `${this.productService.date}${useAgo ? ' (' + fromNow(new Date(this.productService.date), true) + ')' : ''}` : 'Unknown',
-				process.versions['electron'],
-				process.versions['microsoft-build'],
-				process.versions['chrome'],
-				process.versions['node'],
-				process.versions['v8'],
-				`${osProps.type} ${osProps.arch} ${osProps.release}${isLinuxSnap ? ' snap' : ''}`
-			);
-		};
+		const osProps = await this.nativeHostService.getOSProperties()
 
-		const detail = detailString(true);
-		const detailToCopy = detailString(false);
+		// Get deviceUid from metrics service
+		let deviceUid = 'Unknown'
+		try {
+			const debugProperties = await this.metricsService.getDebuggingProperties() as { deviceUid?: string }
+			deviceUid = debugProperties.deviceUid || 'Unknown'
+		} catch (e) {
+			this.logService.error('Failed to get deviceUid', e)
+		}
+
+		const detail = `Version: ${voidVersion}\nVSCode Version: ${vSCodeVersion}\nCommit: ${commit}\nDate: ${date}\nDevice UID: ${deviceUid}\nElectron: ${process.versions['electron']}\nChromium: ${process.versions['chrome']}\nNode.js: ${process.versions['node']}\nV8: ${process.versions['v8']}\nOS: ${osProps.type} ${osProps.arch} ${osProps.release}${isLinuxSnap ? ' snap' : ''}`
+
+		const detailToCopy = `Version: ${voidVersion}\nVSCode Version: ${vSCodeVersion}\nCommit: ${commit}\nDate: ${dateToCopy}\nDevice UID: ${deviceUid}\nElectron: ${process.versions['electron']}\nChromium: ${process.versions['chrome']}\nNode.js: ${process.versions['node']}\nV8: ${process.versions['v8']}\nOS: ${osProps.type} ${osProps.arch} ${osProps.release}${isLinuxSnap ? ' snap' : ''}`
 
 		const { response } = await this.nativeHostService.showMessageBox({
 			type: 'info',
@@ -107,10 +111,10 @@ export class NativeDialogHandler extends AbstractDialogHandler {
 				localize('okButton', "OK")
 			],
 			targetWindowId: getActiveWindow().vscodeWindowId
-		});
+		})
 
 		if (response === 0) {
-			this.clipboardService.writeText(detailToCopy);
+			this.clipboardService.writeText(detailToCopy)
 		}
 	}
 }

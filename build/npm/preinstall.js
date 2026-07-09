@@ -13,6 +13,9 @@ if (!process.env['VSCODE_SKIP_NODE_VERSION_CHECK']) {
 		console.error('\x1b[1;31m*** Please use Node.js v20.18.1 or later for development.\x1b[0;0m');
 		throw new Error();
 	}
+	if (majorNodeVersion >= 23) {
+		console.warn('\x1b[1;33m*** Warning: Node.js v' + majorNodeVersion + '.' + minorNodeVersion + '.' + patchNodeVersion + ' detected. Node.js 20.x or 22.x is recommended.\x1b[0;0m');
+	}
 }
 
 if (process.env['npm_execpath'].includes('yarn')) {

@@ -1,6 +1,7 @@
 {
 	"type": "dark",
 	"colors": {
+		"input.background": "#3C3C3C",
 		"dropdown.background": "#525252",
 		"list.activeSelectionBackground": "#707070",
 		"quickInputList.focusBackground": "#707070",

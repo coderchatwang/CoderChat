@@ -39,7 +39,7 @@ Write-Host ""
 # Step 1: Configure environment
 Write-Host "[1/5] Configuring environment..." -ForegroundColor Yellow
 fnm env --use-on-cd | Out-String | Invoke-Expression
-fnm use 20.18.2
+fnm use 22.18.0
 
 $nodeVersion = node --version
 Write-Host "Node.js version: $nodeVersion" -ForegroundColor Green
@@ -84,7 +84,7 @@ if ($LASTEXITCODE -eq 0) {
         Write-Host "Build contents:" -ForegroundColor Yellow
         Get-ChildItem $outputPath | Select-Object Name, Length | Format-Table
         Write-Host ""
-        Write-Host "To run: ..\VSCode-win32-x64\Void.exe" -ForegroundColor Cyan
+        Write-Host "To run: ..\VSCode-win32-x64\CoderChat" -ForegroundColor Cyan
     }
 } else {
     Write-Host ""

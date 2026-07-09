@@ -21,6 +21,8 @@ import { IVoidSettingsService } from '../common/voidSettingsService.js'
 import { generateUuid } from '../../../../base/common/uuid.js'
 import { IMainProcessService } from '../../../../platform/ipc/common/mainProcessService.js'
 import { IChatThreadService } from './chatThreadService.js'
+import { ISkillService } from '../common/skillService.js'
+import { IMetricsService } from '../common/metricsService.js'
 
 
 
@@ -80,7 +82,7 @@ const escapeXmlTextContent = (content: string, setCount: (count: number) => void
 
 // tool use for AI
 type ValidateBuiltinParams = { [T in BuiltinToolName]: (p: RawToolParamsObj) => BuiltinToolCallParams[T] }
-type CallBuiltinTool = { [T in BuiltinToolName]: (p: BuiltinToolCallParams[T]) => Promise<{ result: BuiltinToolResultType[T] | Promise<BuiltinToolResultType[T]>, interruptTool?: () => void }> }
+type CallBuiltinTool = { [T in BuiltinToolName]: (p: BuiltinToolCallParams[T]) => Promise<{ result: BuiltinToolResultType[T] | Promise<BuiltinToolResultType[T]>, interruptTool?: () => void, skipWait?: () => void }> }
 type BuiltinToolResultToString = { [T in BuiltinToolName]: (p: BuiltinToolCallParams[T], result: Awaited<BuiltinToolResultType[T]>) => string }
 
 
@@ -100,7 +102,7 @@ const validateURI = (uriStr: unknown) => {
 	if (uriStr === null) throw new Error(`Invalid LLM output: uri was null.`)
 	if (typeof uriStr !== 'string') throw new Error(`Invalid LLM output format: Provided uri must be a string, but it's a(n) ${typeof uriStr}. Full value: ${JSON.stringify(uriStr)}.`)
 
-	const uriStrTrimL:string= uriStr.trim()
+	const uriStrTrimL: string = uriStr.trim()
 
 	// Check if it's already a full URI with scheme (e.g., vscode-remote://, file://, etc.)
 	// Look for :// pattern which indicates a scheme is present
@@ -201,7 +203,7 @@ export class ToolsService implements IToolsService {
 	public stringOfResult: BuiltinToolResultToString;
 
 	constructor(
-		@IFileService fileService: IFileService,
+		@IFileService private readonly fileService: IFileService,
 		@IWorkspaceContextService workspaceContextService: IWorkspaceContextService,
 		@ISearchService searchService: ISearchService,
 		@IInstantiationService private readonly instantiationService: IInstantiationService,
@@ -213,6 +215,8 @@ export class ToolsService implements IToolsService {
 		@IMarkerService private readonly markerService: IMarkerService,
 		@IVoidSettingsService private readonly voidSettingsService: IVoidSettingsService,
 		@IMainProcessService private readonly mainProcessService: IMainProcessService,
+		@ISkillService private readonly skillService: ISkillService,
+		@IMetricsService private readonly metricsService: IMetricsService,
 	) {
 		const queryBuilder = this.instantiationService.createInstance(QueryBuilder);
 
@@ -382,7 +386,12 @@ export class ToolsService implements IToolsService {
 						throw new Error(`Invalid LLM output: question ${i + 1} must be an object.`)
 					}
 
-					const question = typeof q.question === 'string' ? q.question : ''
+					// 严格验证 question 字段
+					if (typeof q.question !== 'string') {
+						throw new Error(`Invalid LLM output: question ${i + 1} must have a string 'question' field.`)
+					}
+					const question = q.question
+
 					const header = typeof q.header === 'string' ? q.header : `Question ${i + 1}`
 					const multiSelect = typeof q.multiSelect === 'boolean' ? q.multiSelect : false
 
@@ -398,9 +407,20 @@ export class ToolsService implements IToolsService {
 						if (!opt || typeof opt !== 'object') {
 							throw new Error(`Invalid LLM output: question ${i + 1} option ${j + 1} must be an object.`)
 						}
+
+						// 严格验证 label 字段
+						if (typeof opt.label !== 'string') {
+							throw new Error(`Invalid LLM output: question ${i + 1} option ${j + 1} must have a string 'label' field.`)
+						}
+
+						// 严格验证 description 字段
+						if (typeof opt.description !== 'string') {
+							throw new Error(`Invalid LLM output: question ${i + 1} option ${j + 1} must have a string 'description' field.`)
+						}
+
 						return {
-							label: typeof opt.label === 'string' ? opt.label : `Option ${j + 1}`,
-							description: typeof opt.description === 'string' ? opt.description : ''
+							label: opt.label,
+							description: opt.description
 						}
 					})
 
@@ -416,17 +436,18 @@ export class ToolsService implements IToolsService {
 			},
 
 			web_fetch: (params: RawToolParamsObj) => {
-				const { url: urlUnknown, prompt: promptUnknown } = params
+				const { url: urlUnknown, prompt: promptUnknown, strip_html: stripHtmlUnknown } = params
 
 				const url = validateStr('url', urlUnknown)
 				const prompt = validateStr('prompt', promptUnknown)
+				const stripHtml = validateBoolean(stripHtmlUnknown, { default: false })
 
 				// Validate URL format
 				if (!url.startsWith('http://') && !url.startsWith('https://')) {
 					throw new Error(`Invalid LLM output: URL must start with http:// or https://.`)
 				}
 
-				return { url, prompt }
+				return { url, prompt, stripHtml }
 			},
 
 			todo_write: (params: RawToolParamsObj) => {
@@ -465,6 +486,23 @@ export class ToolsService implements IToolsService {
 
 			todo_read: (_params: RawToolParamsObj) => {
 				return {}
+			},
+
+			sleep_wait: (params: RawToolParamsObj) => {
+				const { seconds: secondsUnknown } = params
+				let seconds = validateNumber(secondsUnknown, { default: 1 })
+				if (seconds === null) seconds = 1
+				if (seconds < 1) throw new Error(`Invalid LLM output: seconds must be at least 1.`)
+				if (seconds > 600) throw new Error(`Invalid LLM output: seconds must be at most 600.`)
+				return { seconds }
+			},
+
+			skill: (params: RawToolParamsObj) => {
+				const { skill: skillName } = params
+				if (typeof skillName !== 'string' || !skillName) {
+					throw new Error(`Invalid LLM output: skill name must be a non-empty string.`)
+				}
+				return { skill: skillName }
 			},
 		}
 
@@ -675,28 +713,47 @@ export class ToolsService implements IToolsService {
 				// In a full implementation, this would trigger a UI prompt and wait for user response
 				return { result: { answers } }
 			},
-			web_fetch: async ({ url, prompt }) => {
+			web_fetch: ({ url, prompt, stripHtml }) => {
+				// 创建一个可取消的 Promise
+				let rejectTimeout: (reason: Error) => void
+				const interruptPromise = new Promise<never>((_, reject) => {
+					rejectTimeout = reject
+				})
+				const interruptTool = () => {
+					rejectTimeout(new Error('Tool call was interrupted by the user.'))
+				}
+
 				// Use IPC channel to make request from main process with proxy support
 				// This bypasses CORS restrictions and uses VSCode's proxy settings
-				try {
-					const channel = this.mainProcessService.getChannel('void-channel-webFetch')
-					const result = await channel.call('fetch', { url, timeout: 30000 }) as {
-						content: string
-						statusCode: number
-						url: string
-					}
+				const fetchPromise = (async () => {
+					try {
+						const channel = this.mainProcessService.getChannel('void-channel-webFetch')
+						const result = await channel.call('fetch', { url, timeout: 30000, stripHtml }) as {
+							content: string
+							statusCode: number
+							url: string
+						}
 
-					// Truncate content if too long
-					const maxContentLength = MAX_FILE_CHARS_PAGE
-					if (result.content.length > maxContentLength) {
-						result.content = result.content.substring(0, maxContentLength)
-					}
+						// Truncate content if too long
+						const maxContentLength = MAX_FILE_CHARS_PAGE
+						if (result.content.length > maxContentLength) {
+							result.content = result.content.substring(0, maxContentLength)
+						}
 
-					return { result }
-				} catch (fetchError) {
-					const errorMessage = fetchError instanceof Error ? fetchError.message : String(fetchError)
-					return { result: { content: `Failed to fetch URL: ${errorMessage}`, statusCode: 0, url } }
-				}
+						return result
+					} catch (fetchError) {
+						const errorMessage = fetchError instanceof Error ? fetchError.message : String(fetchError)
+						return { content: `Failed to fetch URL: ${errorMessage}`, statusCode: 0, url }
+					}
+				})()
+
+				// 使用 Promise.race 等待结果或中断
+				const resultPromise = Promise.race([
+					fetchPromise,
+					interruptPromise
+				])
+
+				return Promise.resolve({ result: resultPromise, interruptTool })
 			},
 			todo_write: async ({ todos }) => {
 				// Simply return the todos - they will be stored in the tool message history
@@ -706,6 +763,75 @@ export class ToolsService implements IToolsService {
 				// Find the latest todo_write result from the current thread's message history
 				const todos = this._getLatestTodosFromHistory()
 				return { result: { todos } }
+			},
+			sleep_wait: ({ seconds }) => {
+				// 创建一个可取消的 Promise（用于中断工具调用）
+				let rejectTimeout: (reason: Error) => void
+				const interruptPromise = new Promise<never>((_, reject) => {
+					rejectTimeout = reject
+				})
+				const interruptTool = () => {
+					rejectTimeout(new Error('Tool call was interrupted by the user.'))
+				}
+				
+				// 创建一个提前结束等待的 Promise（不是中断，而是正常结束）
+				let resolveSkip: (value: { seconds: number, skipped: boolean }) => void
+				const skipPromise = new Promise<{ seconds: number, skipped: boolean }>((resolve) => {
+					resolveSkip = resolve
+				})
+				const skipWait = () => {
+					resolveSkip({ seconds, skipped: true })
+				}
+				
+				// 返回一个 Promise 作为 result，让 _runToolCall 来 await
+				// skipWait 会提前结束等待，返回 skipped: true 标记
+				const resultPromise = Promise.race([
+					timeout(seconds * 1000).then(() => ({ seconds, skipped: false })),
+					skipPromise,
+					interruptPromise
+				])
+				
+				return Promise.resolve({ result: resultPromise, interruptTool, skipWait })
+			},
+
+			skill: async ({ skill: skillName }) => {
+				// 获取所有可用的 skills
+				const skills = this.skillService.getSkills()
+				const skill = skills.find(s => s.name === skillName)
+
+				if (!skill) {
+					// 记录调用技能失败事件
+					this.metricsService.capture('Skill Tool Call', {
+						skillName,
+						location: 'unknown',
+						success: false,
+						error: 'Skill not found'
+					})
+					throw new Error(`Skill "${skillName}" not found. Available skills: ${skills.map(s => s.name).join(', ') || 'none'}`)
+				}
+
+				// 读取 skill 的 SKILL.md 文件内容
+				const skillContent = await this._readSkillContent(skill.skillPath)
+
+				// 获取 skill 目录的目录树
+				const skillUri = URI.file(skill.skillPath)
+				const dirTree = await computeDirectoryTree1Deep(this.fileService, skillUri, 1)
+
+				// 记录调用技能成功事件
+				this.metricsService.capture('Skill Tool Call', {
+					skillName: skill.name,
+					location: skill.location,
+					success: true
+				})
+
+				return {
+					result: {
+						skillName: skill.name,
+						skillPath: skill.skillPath,
+						skillContent,
+						dirTree
+					}
+				}
 			},
 		}
 
@@ -846,10 +972,37 @@ export class ToolsService implements IToolsService {
 				}).join('\n')
 				return `Current todo list:\n${todosStr}`
 			},
+			sleep_wait: (_params, result) => {
+				if (result.skipped) {
+					return `Wait skipped by user after ${result.seconds} seconds.`
+				}
+				return `Hibernation ended, waited ${result.seconds} seconds.`
+			},
+
+			skill: (_params, result) => {
+				// 构建目录树字符串
+				const dirTreeStr = stringifyDirectoryTree1Deep({ uri: URI.file(result.skillPath), pageNumber: 1 }, result.dirTree)
+				return `Skill "${result.skillName}" invoked successfully.\n\n${dirTreeStr}\n\nSkill content:\n${result.skillContent}`
+			},
+	}
+
+
+
+	}
+
+	/**
+	 * Read the content of a skill's SKILL.md file
+	 */
+	private async _readSkillContent(skillPath: string): Promise<string> {
+		const skillUri = URI.file(skillPath)
+		const skillFileUri = URI.joinPath(skillUri, 'SKILL.md')
+
+		try {
+			const content = await this.fileService.readFile(skillFileUri)
+			return content.value.toString()
+		} catch (e) {
+			throw new Error(`Failed to read skill content from ${skillFileUri.fsPath}: ${e}`)
 		}
-
-
-
 	}
 
 	/**

@@ -16,7 +16,7 @@ import { IChannel } from '../../../../base/parts/ipc/common/ipc.js';
 import { IMainProcessService } from '../../../../platform/ipc/common/mainProcessService.js';
 import { MCPServerOfName, MCPConfigFileJSON, MCPServer, MCPToolCallParams, RawMCPToolCall, MCPServerEventResponse } from './mcpServiceTypes.js';
 import { Event, Emitter } from '../../../../base/common/event.js';
-import { InternalToolInfo } from './prompt/prompts.js';
+import { InternalToolInfo, ParamSchema } from './prompt/prompts.js';
 import { IVoidSettingsService } from './voidSettingsService.js';
 import { MCPUserStateOfName } from './voidSettingsTypes.js';
 
@@ -30,6 +30,7 @@ export interface IMCPService {
 	readonly _serviceBrand: undefined;
 	revealMCPConfigFile(): Promise<void>;
 	toggleServerIsOn(serverName: string, isOn: boolean): Promise<void>;
+	refreshMCPServer(serverName: string): Promise<void>;
 
 	readonly state: MCPServiceState; // NOT persisted
 	onDidChangeState: Event<void>;
@@ -200,12 +201,14 @@ class MCPService extends Disposable implements IMCPService {
 		return allTools
 	}
 
-	private _transformInputSchemaToParams(inputSchema?: Record<string, any>): { [paramName: string]: { description: string } } {
+	private _transformInputSchemaToParams(inputSchema?: Record<string, any>): { [paramName: string]: ParamSchema } {
 
 		// Check if inputSchema is valid
 		if (!inputSchema || !inputSchema.properties) return {};
 
-		const params: { [paramName: string]: { description: string } } = {};
+		const params: { [paramName: string]: ParamSchema } = {};
+		const requiredParams = inputSchema.required || [];
+
 		Object.keys(inputSchema.properties).forEach(paramName => {
 			const propertyValues = inputSchema.properties[paramName];
 
@@ -215,12 +218,82 @@ class MCPService extends Disposable implements IMCPService {
 				return; // in forEach the return is equivalent to continue
 			}
 
-			// Add the parameter to the params object
-			params[paramName] = {
-				description: JSON.stringify(propertyValues.description || '', null, 2) || '',
+			// Convert JSON Schema type to ParamSchema type
+			const paramSchema: ParamSchema = {
+				description: propertyValues.description || '',
+				type: this._convertSchemaType(propertyValues.type),
+				required: requiredParams.includes(paramName) ? [paramName] : undefined,
+			};
+
+			// Handle enum values
+			if (propertyValues.enum && Array.isArray(propertyValues.enum)) {
+				paramSchema.enum = propertyValues.enum.map((e: unknown) => String(e));
 			}
+
+			// Handle array items
+			if (propertyValues.type === 'array' && propertyValues.items) {
+				paramSchema.items = this._convertPropertyToParamSchema(propertyValues.items);
+			}
+
+			// Handle nested object properties
+			if (propertyValues.type === 'object' && propertyValues.properties) {
+				paramSchema.properties = {};
+				Object.keys(propertyValues.properties).forEach(nestedPropName => {
+					paramSchema.properties![nestedPropName] = this._convertPropertyToParamSchema(propertyValues.properties[nestedPropName]);
+				});
+				if (propertyValues.required) {
+					paramSchema.required = propertyValues.required;
+				}
+				if (propertyValues.additionalProperties !== undefined) {
+					paramSchema.additionalProperties = propertyValues.additionalProperties;
+				}
+			}
+
+			// Add the parameter to the params object
+			params[paramName] = paramSchema;
 		});
 		return params;
+	}
+
+	private _convertSchemaType(jsonSchemaType: string | string[] | undefined): 'string' | 'boolean' | 'number' | 'integer' | 'array' | 'object' | undefined {
+		if (!jsonSchemaType) return undefined;
+
+		// Handle array of types (e.g., ["string", "null"])
+		const types = Array.isArray(jsonSchemaType) ? jsonSchemaType : [jsonSchemaType];
+		const primaryType = types.find(t => t !== 'null') || types[0];
+
+		const validTypes: ('string' | 'boolean' | 'number' | 'integer' | 'array' | 'object')[] = ['string', 'boolean', 'number', 'integer', 'array', 'object'];
+		return validTypes.includes(primaryType as any) ? primaryType as any : undefined;
+	}
+
+	private _convertPropertyToParamSchema(property: Record<string, any>): ParamSchema {
+		const schema: ParamSchema = {
+			description: property.description || '',
+			type: this._convertSchemaType(property.type),
+		};
+
+		if (property.enum && Array.isArray(property.enum)) {
+			schema.enum = property.enum.map((e: unknown) => String(e));
+		}
+
+		if (property.type === 'array' && property.items) {
+			schema.items = this._convertPropertyToParamSchema(property.items);
+		}
+
+		if (property.type === 'object' && property.properties) {
+			schema.properties = {};
+			Object.keys(property.properties).forEach(propName => {
+				schema.properties![propName] = this._convertPropertyToParamSchema(property.properties[propName]);
+			});
+			if (property.required) {
+				schema.required = property.required;
+			}
+			if (property.additionalProperties !== undefined) {
+				schema.additionalProperties = property.additionalProperties;
+			}
+		}
+
+		return schema;
 	}
 
 	private async _getMCPConfigFilePath(): Promise<URI> {
@@ -319,6 +392,22 @@ class MCPService extends Disposable implements IMCPService {
 
 		await this.voidSettingsService.setMCPServerState(serverName, { isOn });
 		this.channel.call('toggleMCPServer', { serverName, isOn })
+	}
+
+	public async refreshMCPServer(serverName: string): Promise<void> {
+		this._setMCPServerState(serverName, { status: 'loading', tools: [] })
+
+		const mcpConfigFileJSON = await this._parseMCPConfigFile();
+		if (!mcpConfigFileJSON || !mcpConfigFileJSON.mcpServers[serverName]) {
+			this._setMCPServerState(serverName, { status: 'error', error: `Server ${serverName} not found in config file` })
+			return
+		}
+
+		this.channel.call('refreshMCPServer', {
+			serverName,
+			serverConfig: mcpConfigFileJSON.mcpServers[serverName],
+			isOn: this.voidSettingsService.state.mcpUserStateOfName[serverName]?.isOn ?? true
+		})
 	}
 
 

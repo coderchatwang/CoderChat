@@ -31,6 +31,24 @@ const tokenCache = new Map<string, CacheEntry>()
 // 访问顺序记录（用于 LRU 淘汰）
 const accessOrder: string[] = []
 
+// 缓存启用标志 - 默认不启用
+let isCacheEnabled = false
+
+/**
+ * 初始化缓存设置（仅在启动时调用一次）
+ * @param enabled - 是否启用缓存
+ */
+export function initMarkdownCache(enabled: boolean): void {
+	isCacheEnabled = enabled
+}
+
+/**
+ * 获取缓存是否启用
+ */
+export function getCacheEnabled(): boolean {
+	return isCacheEnabled
+}
+
 /**
  * 计算字符串的简单哈希值
  * 用于生成缓存 key
@@ -101,6 +119,11 @@ function updateAccessOrder(key: string): void {
 export function getCachedTokens(string: string): Token[] {
 	// 预处理字符串（与 ChatMarkdownRender 中相同的处理）
 	const processedString = string.replaceAll('\n•', '\n\n•')
+
+	// 如果缓存未启用，直接解析并返回
+	if (!isCacheEnabled) {
+		return marked.lexer(processedString)
+	}
 
 	// 计算缓存 key
 	const cacheKey = hashString(processedString)

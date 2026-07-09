@@ -569,6 +569,7 @@
 		}
 	],
 	"colors": {
+		"input.background": "#FFFFFF",
 		"actionBar.toggledBackground": "#dddddd",
 		"statusBarItem.remoteBackground": "#FFFFFF",
 		"statusBarItem.remoteForeground": "#000000"

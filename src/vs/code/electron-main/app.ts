@@ -134,6 +134,9 @@ import { WebFetchChannel } from '../../workbench/contrib/void/electron-main/webF
 import { VoidSCMService } from '../../workbench/contrib/void/electron-main/voidSCMMainService.js';
 import { IVoidSCMService } from '../../workbench/contrib/void/common/voidSCMTypes.js';
 import { MCPChannel } from '../../workbench/contrib/void/electron-main/mcpChannel.js';
+import { SkillChannel } from '../../workbench/contrib/void/electron-main/skillChannel.js';
+// import { WebApiServer } from '../../workbench/contrib/void/electron-main/webApiServer.js';
+// import { DEFAULT_WEB_API_CONFIG } from '../../workbench/contrib/void/common/chatThreadApiTypes.js';
 /**
  * The main VS Code application. There will only ever be one instance,
  * even if the user starts many instances (e.g. from the command line).
@@ -1258,6 +1261,16 @@ export class CodeApplication extends Disposable {
 		// Void added this
 		const mcpChannel = new MCPChannel();
 		mainProcessElectronServer.registerChannel('void-channel-mcp', mcpChannel);
+
+		// Skill channel for ZIP extraction and file operations
+		const skillChannel = new SkillChannel();
+		mainProcessElectronServer.registerChannel('void-channel-skill', skillChannel);
+
+		// // Void Web API Server - exposes chat thread list via HTTP
+		// const webApiServer = new WebApiServer(accessor.get(IApplicationStorageMainService), DEFAULT_WEB_API_CONFIG);
+		// webApiServer.start().catch(err => {
+		// 	console.error('[Void WebApiServer] Failed to start:', err);
+		// });
 
 		// Extension Host Debug Broadcasting
 		const electronExtensionHostDebugBroadcastChannel = new ElectronExtensionHostDebugBroadcastChannel(accessor.get(IWindowsMainService));

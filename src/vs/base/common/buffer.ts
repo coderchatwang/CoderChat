@@ -95,10 +95,12 @@ export class VSBuffer {
 
 	readonly buffer: Uint8Array;
 	readonly byteLength: number;
+	readonly byteOffset: number;
 
 	private constructor(buffer: Uint8Array) {
 		this.buffer = buffer;
 		this.byteLength = this.buffer.byteLength;
+		this.byteOffset = this.buffer.byteOffset;
 	}
 
 	/**

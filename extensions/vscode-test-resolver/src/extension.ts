@@ -185,8 +185,8 @@ export function activate(context: vscode.ExtensionContext) {
 				const shell = (process.platform === 'win32');
 				extHostProcess = cp.spawn(path.join(serverLocation, 'bin', serverCommand), commandArgs, { env, cwd: serverLocation, shell });
 			}
-			extHostProcess.stdout!.on('data', (data: Buffer) => processOutput(data.toString()));
-			extHostProcess.stderr!.on('data', (data: Buffer) => processOutput(data.toString()));
+			extHostProcess.stdout!.on('data', (data: Buffer | Uint8Array) => processOutput(data.toString()));
+			extHostProcess.stderr!.on('data', (data: Buffer | Uint8Array) => processOutput(data.toString()));
 			extHostProcess.on('error', (error: Error) => {
 				processError(`server failed with error:\n${error.message}`);
 				extHostProcess = undefined;
@@ -214,7 +214,7 @@ export function activate(context: vscode.ExtensionContext) {
 					const endEmitter = new vscode.EventEmitter<void>();
 
 					await new Promise((res, rej) => {
-						remoteSocket.on('data', d => dataEmitter.fire(d))
+						remoteSocket.on('data', d => dataEmitter.fire(new Uint8Array(d)))
 							.on('error', err => { rej(); closeEmitter.fire(err); })
 							.on('close', () => endEmitter.fire())
 							.on('end', () => endEmitter.fire())
@@ -269,14 +269,16 @@ export function activate(context: vscode.ExtensionContext) {
 
 					proxySocket.on('data', async (data) => {
 						await maybeSlowdown();
-						remoteReady = remoteSocket.write(data);
+						const writeData = new Uint8Array(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength));
+						remoteReady = remoteSocket.write(writeData);
 						if (!remoteReady) {
 							proxySocket.pause();
 						}
 					});
 					remoteSocket.on('data', async (data) => {
 						await maybeSlowdown();
-						localReady = proxySocket.write(data);
+						const writeData = new Uint8Array(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength));
+						localReady = proxySocket.write(writeData);
 						if (!localReady) {
 							remoteSocket.pause();
 						}

@@ -14,13 +14,16 @@ import { Tool as GeminiTool, FunctionDeclaration, GoogleGenAI, ThinkingConfig, S
 import { GoogleAuth } from 'google-auth-library'
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import * as https from 'https';
+import { ProxyAgent, fetch as undiciFetch, setGlobalDispatcher } from 'undici';
 /* eslint-enable */
 
 import { GeminiLLMChatMessage, LLMChatMessage, LLMFIMMessage, ModelListParams, OllamaModelResponse, OnError, OnFinalMessage, OnText, OnOptionsCreated, ProxyConfig, RawToolCallObj, RawToolParamsObj } from '../../common/sendLLMMessageTypes.js';
 import { ChatMode, displayInfoOfProviderName, ModelSelectionOptions, OverridesOfModel, ProviderName, SettingsOfProvider } from '../../common/voidSettingsTypes.js';
+import { SkillInfo } from '../../common/skillServiceTypes.js';
 import { getSendableReasoningInfo, getModelCapabilities, getProviderCapabilities, defaultProviderSettings, getReservedOutputTokenSpace } from '../../common/modelCapabilities.js';
 import { extractReasoningWrapper, extractXMLToolsWrapper } from './extractGrammar.js';
-import { availableTools, InternalToolInfo } from '../../common/prompt/prompts.js';
+import { availableTools, InternalToolInfo, builtinTools } from '../../common/prompt/prompts.js';
+import { generateSkillsListXML } from '../../common/prompt/prompts.js';
 import { generateUuid } from '../../../../../base/common/uuid.js';
 
 const getGoogleApiKey = async () => {
@@ -29,6 +32,29 @@ const getGoogleApiKey = async () => {
 	const key = await auth.getAccessToken()
 	if (!key) throw new Error(`Google API failed to generate a key.`)
 	return key
+}
+
+// Create a proxy-aware fetch function for SDKs that support custom fetch (Anthropic)
+// The return type must match Anthropic's Fetch type: (input: string | URL | Request, init?: RequestInit) => Promise<Response>
+const createProxyFetch = (proxyUrl: string, proxyStrictSSL: boolean): (input: string | URL | Request, init?: RequestInit) => Promise<Response> => {
+	const proxyAgent = new ProxyAgent({
+		uri: proxyUrl,
+		requestTls: proxyStrictSSL ? undefined : { rejectUnauthorized: false }
+	})
+	return (input, init) => undiciFetch(input as any, { ...init, dispatcher: proxyAgent } as any) as unknown as Promise<Response>
+}
+
+// Setup global proxy dispatcher for SDKs that don't support custom fetch/httpAgent (Google GenAI)
+let _globalProxyConfigured = false
+const setupGlobalProxy = (proxyUrl: string, proxyStrictSSL: boolean) => {
+	if (_globalProxyConfigured) return
+	const proxyAgent = new ProxyAgent({
+		uri: proxyUrl,
+		requestTls: proxyStrictSSL ? undefined : { rejectUnauthorized: false }
+	})
+	setGlobalDispatcher(proxyAgent)
+	_globalProxyConfigured = true
+	console.log(`[Proxy] Global proxy dispatcher configured: ${proxyUrl}, strictSSL: ${proxyStrictSSL}`)
 }
 
 
@@ -53,6 +79,7 @@ type SendChatParams_Internal = InternalCommonMessageParams & {
 	separateSystemMessage: string | undefined;
 	chatMode: ChatMode | null;
 	mcpTools: InternalToolInfo[] | undefined;
+	skills: SkillInfo[] | undefined;
 }
 type SendFIMParams_Internal = InternalCommonMessageParams & { messages: LLMFIMMessage; separateSystemMessage: string | undefined; }
 export type ListParams_Internal<ModelResponse> = ModelListParams<ModelResponse>
@@ -308,8 +335,12 @@ const toOpenAICompatibleTool = (toolInfo: InternalToolInfo) => {
 	} satisfies OpenAI.Chat.Completions.ChatCompletionTool
 }
 
-const openAITools = (chatMode: ChatMode | null, mcpTools: InternalToolInfo[] | undefined) => {
-	const allowedTools = availableTools(chatMode, mcpTools)
+const openAITools = (chatMode: ChatMode | null, mcpTools: InternalToolInfo[] | undefined, skills: SkillInfo[] | undefined) => {
+	// 生成 skills 列表 XML 并替换 skill 工具描述中的占位符
+	const skillsListXML = generateSkillsListXML(skills)
+	const skillDescriptionWithSkills = builtinTools.skill.description.replace('{{SKILLS_LIST}}', skillsListXML)
+	
+	const allowedTools = availableTools(chatMode, mcpTools, skillDescriptionWithSkills)
 	if (!allowedTools || Object.keys(allowedTools).length === 0) return null
 
 	const openAITools: OpenAI.Chat.Completions.ChatCompletionTool[] = []
@@ -347,8 +378,22 @@ const rawToolCallObjOfAnthropicParams = (toolBlock: Anthropic.Messages.ToolUseBl
 
 // ------------ OPENAI-COMPATIBLE ------------
 
+// Helper function to check if provider is openAICompatible type
+const isOpenAICompatibleProvider = (providerName: ProviderName): boolean => {
+	return providerName.startsWith('openAICompatible')
+}
 
-const _sendOpenAICompatibleChat = async ({ messages, onText, onFinalMessage, onError, onOptionsCreated, settingsOfProvider, modelSelectionOptions, modelName: modelName_, _setAborter, providerName, chatMode, separateSystemMessage, overridesOfModel, mcpTools, proxyConfig }: SendChatParams_Internal) => {
+// Helper function to get openAICompatible config
+const getOpenAICompatibleConfig = (settingsOfProvider: SettingsOfProvider, providerName: ProviderName) => {
+	const thisConfig = settingsOfProvider[providerName] as { endpoint: string; apiKey: string; headersJSON: string }
+	return {
+		endpoint: thisConfig.endpoint,
+		apiKey: thisConfig.apiKey,
+		headersJSON: thisConfig.headersJSON,
+	}
+}
+
+const _sendOpenAICompatibleChat = async ({ messages, onText, onFinalMessage, onError, onOptionsCreated, settingsOfProvider, modelSelectionOptions, modelName: modelName_, _setAborter, providerName, chatMode, separateSystemMessage, overridesOfModel, mcpTools, proxyConfig, skills }: SendChatParams_Internal) => {
 	const {
 		modelName,
 		specialToolFormat,
@@ -356,6 +401,111 @@ const _sendOpenAICompatibleChat = async ({ messages, onText, onFinalMessage, onE
 		additionalOpenAIPayload,
 	} = getModelCapabilities(providerName, modelName_, overridesOfModel)
 
+	// ============ ANTHROPIC-STYLE BRANCH ============
+	// When specialToolFormat is 'anthropic-style' on openAICompatible provider, use Anthropic SDK to send request
+	if (specialToolFormat === 'anthropic-style' && isOpenAICompatibleProvider(providerName)) {
+		const { endpoint, apiKey } = getOpenAICompatibleConfig(settingsOfProvider, providerName)
+		const maxTokens = getReservedOutputTokenSpace(providerName, modelName_, { isReasoningEnabled: false, overridesOfModel })
+
+		// tools
+		const potentialTools = anthropicTools(chatMode, mcpTools, skills)
+		const nativeToolsObj = potentialTools ?
+			{ tools: potentialTools, tool_choice: { type: 'auto' } } as const
+			: {}
+
+		// instance - configure proxy if needed (Anthropic SDK requires custom fetch, not httpAgent)
+		const anthropicOptions: { apiKey: string; baseURL?: string; dangerouslyAllowBrowser: boolean; fetch?: (input: string | URL | Request, init?: RequestInit) => Promise<Response> } = {
+			apiKey: apiKey,
+			baseURL: endpoint || undefined,
+			dangerouslyAllowBrowser: true
+		};
+
+		if (proxyConfig.proxyUrl) {
+			console.log(`[Proxy] Anthropic using proxy: ${proxyConfig.proxyUrl}, strictSSL: ${proxyConfig.proxyStrictSSL}`);
+			anthropicOptions.fetch = createProxyFetch(proxyConfig.proxyUrl, proxyConfig.proxyStrictSSL);
+		}
+
+		const anthropic = new Anthropic(anthropicOptions);
+
+		const stream = anthropic.messages.stream({
+			system: separateSystemMessage ?? undefined,
+			messages: messages as Anthropic.Messages.MessageParam[],
+			model: modelName,
+			max_tokens: maxTokens ?? 4_096,
+			...nativeToolsObj,
+		})
+
+		// when receive text
+		let fullText = ''
+		let fullReasoning = ''
+
+		let fullToolName = ''
+		let fullToolParams = ''
+
+		const runOnText = () => {
+			onText({
+				fullText,
+				fullReasoning,
+				toolCall: !fullToolName ? undefined : { name: fullToolName, rawParams: {}, isDone: false, doneParams: [], id: 'dummy' },
+			})
+		}
+
+		stream.on('streamEvent', e => {
+			if (e.type === 'content_block_start') {
+				if (e.content_block.type === 'text') {
+					if (fullText) fullText += '\n\n'
+					fullText += e.content_block.text
+					runOnText()
+				}
+				else if (e.content_block.type === 'thinking') {
+					if (fullReasoning) fullReasoning += '\n\n'
+					fullReasoning += e.content_block.thinking
+					runOnText()
+				}
+				else if (e.content_block.type === 'redacted_thinking') {
+					if (fullReasoning) fullReasoning += '\n\n'
+					fullReasoning += '[redacted_thinking]'
+					runOnText()
+				}
+				else if (e.content_block.type === 'tool_use') {
+					fullToolName += e.content_block.name ?? ''
+					runOnText()
+				}
+			}
+			else if (e.type === 'content_block_delta') {
+				if (e.delta.type === 'text_delta') {
+					fullText += e.delta.text
+					runOnText()
+				}
+				else if (e.delta.type === 'thinking_delta') {
+					fullReasoning += e.delta.thinking
+					runOnText()
+				}
+				else if (e.delta.type === 'input_json_delta') {
+					fullToolParams += e.delta.partial_json ?? ''
+					runOnText()
+				}
+			}
+		})
+
+		stream.on('finalMessage', (response) => {
+			const anthropicReasoning = response.content.filter(c => c.type === 'thinking' || c.type === 'redacted_thinking')
+			const tools = response.content.filter(c => c.type === 'tool_use')
+			const toolCall = tools[0] && rawToolCallObjOfAnthropicParams(tools[0])
+			const toolCallObj = toolCall ? { toolCall } : {}
+			onFinalMessage({ fullText, fullReasoning, anthropicReasoning, modelName, ...toolCallObj })
+		})
+
+		stream.on('error', (error) => {
+			if (error instanceof Anthropic.APIError && error.status === 401) { onError({ message: invalidApiKeyMessage(providerName), fullError: error }) }
+			else { onError({ message: error + '', fullError: error }) }
+		})
+
+		_setAborter(() => stream.controller.abort())
+		return
+	}
+
+	// ============ ORIGINAL OPENAI-STYLE LOGIC ============
 	const { providerReasoningIOSettings } = getProviderCapabilities(providerName)
 
 	// reasoning
@@ -368,7 +518,7 @@ const _sendOpenAICompatibleChat = async ({ messages, onText, onFinalMessage, onE
 	}
 
 	// tools
-	const potentialTools = openAITools(chatMode, mcpTools)
+	const potentialTools = openAITools(chatMode, mcpTools, skills)
 	const nativeToolsObj = potentialTools && specialToolFormat === 'openai-style' ?
 		{ tools: potentialTools } as const
 		: {}
@@ -565,8 +715,12 @@ const toAnthropicTool = (toolInfo: InternalToolInfo) => {
 	} satisfies Anthropic.Messages.Tool
 }
 
-const anthropicTools = (chatMode: ChatMode | null, mcpTools: InternalToolInfo[] | undefined) => {
-	const allowedTools = availableTools(chatMode, mcpTools)
+const anthropicTools = (chatMode: ChatMode | null, mcpTools: InternalToolInfo[] | undefined, skills: SkillInfo[] | undefined) => {
+	// 生成 skills 列表 XML 并替换 skill 工具描述中的占位符
+	const skillsListXML = generateSkillsListXML(skills)
+	const skillDescriptionWithSkills = builtinTools.skill.description.replace('{{SKILLS_LIST}}', skillsListXML)
+	
+	const allowedTools = availableTools(chatMode, mcpTools, skillDescriptionWithSkills)
 	if (!allowedTools || Object.keys(allowedTools).length === 0) return null
 
 	const anthropicTools: Anthropic.Messages.ToolUnion[] = []
@@ -579,7 +733,7 @@ const anthropicTools = (chatMode: ChatMode | null, mcpTools: InternalToolInfo[] 
 
 
 // ------------ ANTHROPIC ------------
-const sendAnthropicChat = async ({ messages, providerName, onText, onFinalMessage, onError, settingsOfProvider, modelSelectionOptions, overridesOfModel, modelName: modelName_, _setAborter, separateSystemMessage, chatMode, mcpTools, proxyConfig }: SendChatParams_Internal) => {
+const sendAnthropicChat = async ({ messages, providerName, onText, onFinalMessage, onError, settingsOfProvider, modelSelectionOptions, overridesOfModel, modelName: modelName_, _setAborter, separateSystemMessage, chatMode, mcpTools, proxyConfig, skills }: SendChatParams_Internal) => {
 	const {
 		modelName,
 		specialToolFormat,
@@ -596,27 +750,21 @@ const sendAnthropicChat = async ({ messages, providerName, onText, onFinalMessag
 	const maxTokens = getReservedOutputTokenSpace(providerName, modelName_, { isReasoningEnabled: !!reasoningInfo?.isReasoningEnabled, overridesOfModel })
 
 	// tools
-	const potentialTools = anthropicTools(chatMode, mcpTools)
+	const potentialTools = anthropicTools(chatMode, mcpTools, skills)
 	const nativeToolsObj = potentialTools && specialToolFormat === 'anthropic-style' ?
 		{ tools: potentialTools, tool_choice: { type: 'auto' } } as const
 		: {}
 
 
-	// instance - configure proxy if needed
-	const anthropicOptions: { apiKey: string; dangerouslyAllowBrowser: boolean; httpAgent?: HttpsProxyAgent<string> } = {
+	// instance - configure proxy if needed (Anthropic SDK requires custom fetch, not httpAgent)
+	const anthropicOptions: { apiKey: string; dangerouslyAllowBrowser: boolean; fetch?: (input: string | URL | Request, init?: RequestInit) => Promise<Response> } = {
 		apiKey: thisConfig.apiKey,
 		dangerouslyAllowBrowser: true
 	};
 
 	if (proxyConfig.proxyUrl) {
-		const proxyAgent = new HttpsProxyAgent<string>(proxyConfig.proxyUrl);
-		if (!proxyConfig.proxyStrictSSL) {
-			process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
-			(https.globalAgent as any).options = (https.globalAgent as any).options || {};
-			(https.globalAgent as any).options.rejectUnauthorized = false;
-		}
 		console.log(`[Proxy] Anthropic using proxy: ${proxyConfig.proxyUrl}, strictSSL: ${proxyConfig.proxyStrictSSL}`);
-		anthropicOptions.httpAgent = proxyAgent;
+		anthropicOptions.fetch = createProxyFetch(proxyConfig.proxyUrl, proxyConfig.proxyStrictSSL);
 	}
 
 	const anthropic = new Anthropic(anthropicOptions);
@@ -837,8 +985,12 @@ const toGeminiFunctionDecl = (toolInfo: InternalToolInfo) => {
 	} satisfies FunctionDeclaration
 }
 
-const geminiTools = (chatMode: ChatMode | null, mcpTools: InternalToolInfo[] | undefined): GeminiTool[] | null => {
-	const allowedTools = availableTools(chatMode, mcpTools)
+const geminiTools = (chatMode: ChatMode | null, mcpTools: InternalToolInfo[] | undefined, skills: SkillInfo[] | undefined): GeminiTool[] | null => {
+	// 生成 skills 列表 XML 并替换 skill 工具描述中的占位符
+	const skillsListXML = generateSkillsListXML(skills)
+	const skillDescriptionWithSkills = builtinTools.skill.description.replace('{{SKILLS_LIST}}', skillsListXML)
+	
+	const allowedTools = availableTools(chatMode, mcpTools, skillDescriptionWithSkills)
 	if (!allowedTools || Object.keys(allowedTools).length === 0) return null
 	const functionDecls: FunctionDeclaration[] = []
 	for (const t in allowedTools ?? {}) {
@@ -866,6 +1018,7 @@ const sendGeminiChat = async ({
 	chatMode,
 	mcpTools,
 	proxyConfig,
+	skills,
 }: SendChatParams_Internal) => {
 
 	if (providerName !== 'gemini') throw new Error(`Sending Gemini chat, but provider was ${providerName}`)
@@ -891,26 +1044,17 @@ const sendGeminiChat = async ({
 			: undefined
 
 	// tools
-	const potentialTools = geminiTools(chatMode, mcpTools)
+	const potentialTools = geminiTools(chatMode, mcpTools, skills)
 	const toolConfig = potentialTools && specialToolFormat === 'gemini-style' ?
 		potentialTools
 		: undefined
 
-	// instance - configure proxy if needed
-	const genAIOptions: { apiKey: string; httpAgent?: HttpsProxyAgent<string> } = { apiKey: thisConfig.apiKey };
-
+	// instance - configure proxy if needed (Google GenAI SDK doesn't support custom fetch, use global dispatcher)
 	if (proxyConfig.proxyUrl) {
-		const proxyAgent = new HttpsProxyAgent<string>(proxyConfig.proxyUrl);
-		if (!proxyConfig.proxyStrictSSL) {
-			process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
-			(https.globalAgent as any).options = (https.globalAgent as any).options || {};
-			(https.globalAgent as any).options.rejectUnauthorized = false;
-		}
-		console.log(`[Proxy] Gemini using proxy: ${proxyConfig.proxyUrl}, strictSSL: ${proxyConfig.proxyStrictSSL}`);
-		genAIOptions.httpAgent = proxyAgent;
+		setupGlobalProxy(proxyConfig.proxyUrl, proxyConfig.proxyStrictSSL);
 	}
 
-	const genAI = new GoogleGenAI(genAIOptions);
+	const genAI = new GoogleGenAI({ apiKey: thisConfig.apiKey });
 
 
 	// manually parse out tool results if XML

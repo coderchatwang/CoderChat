@@ -110,7 +110,7 @@ export function transpileTask(src: string, out: string, esbuild: boolean): task.
 	const task = () => {
 
 		const transpile = createCompile(src, { build: false, emitError: true, transpileOnly: { esbuild }, preserveEnglish: false });
-		const srcPipe = gulp.src(`${src}/**`, { base: `${src}` });
+		const srcPipe = gulp.src([`${src}/**`, `!${src}/**/*.ttf`], { base: `${src}` });
 
 		return srcPipe
 			.pipe(transpile())
@@ -363,3 +363,38 @@ export const watchApiProposalNamesTask = task.define('watch-api-proposal-names',
 		.pipe(util.debounce(task))
 		.pipe(gulp.dest('src'));
 });
+
+// --- codicons -------------------------------------------------------
+
+const root = path.join(__dirname, '../../');
+const codiconSource = path.join(root, 'src', 'vs', 'base', 'browser', 'ui', 'codicons', 'codicon', 'codicon.ttf');
+const codiconDest = path.join(root, 'out', 'vs', 'base', 'browser', 'ui', 'codicons', 'codicon', 'codicon.ttf');
+
+function copyCodiconsImpl() {
+	try {
+		if (fs.existsSync(codiconSource)) {
+			fs.mkdirSync(path.dirname(codiconDest), { recursive: true });
+			fs.copyFileSync(codiconSource, codiconDest);
+			fancyLog(ansiColors.green('[codicons]'), 'copied codicon.ttf successfully');
+		} else {
+			fancyLog(ansiColors.red('[codicons]'), `codicon.ttf not found at ${codiconSource}`);
+		}
+	} catch (e) {
+		fancyLog(ansiColors.red('[codicons]'), `Error copying codicon.ttf: ${e}`);
+	}
+}
+
+export const copyCodiconsTask = task.define('copy-codicons', () => {
+	copyCodiconsImpl();
+	return Promise.resolve();
+});
+
+gulp.task(copyCodiconsTask);
+
+export const watchCodiconsTask = task.define('watch-codicons', () => {
+	copyCodiconsImpl();
+	return watch(path.join(root, 'src/vs/base/browser/ui/codicons/codicon/**'), { readDelay: 200 })
+		.on('data', () => copyCodiconsImpl());
+});
+
+gulp.task(watchCodiconsTask);

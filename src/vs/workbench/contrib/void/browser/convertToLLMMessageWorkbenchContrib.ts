@@ -8,6 +8,7 @@ import { URI } from '../../../../base/common/uri.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { IVoidModelService } from '../common/voidModelService.js';
+import { ISkillService } from '../common/skillService.js';
 
 class ConvertContribWorkbenchContribution extends Disposable implements IWorkbenchContribution {
 	static readonly ID = 'workbench.contrib.void.convertcontrib'
@@ -16,13 +17,20 @@ class ConvertContribWorkbenchContribution extends Disposable implements IWorkben
 	constructor(
 		@IVoidModelService private readonly voidModelService: IVoidModelService,
 		@IWorkspaceContextService private readonly workspaceContext: IWorkspaceContextService,
+		@ISkillService private readonly skillService: ISkillService,
 	) {
 		super()
 
 		const initializeURI = (uri: URI) => {
 			this.workspaceContext.getWorkspace()
+			// Initialize .voidrules file
 			const voidRulesURI = URI.joinPath(uri, '.voidrules')
 			this.voidModelService.initializeModel(voidRulesURI)
+			// Initialize AGENTS.md file (same function as .voidrules, for compatibility with common conventions)
+			const agentsMdURI = URI.joinPath(uri, 'AGENTS.md')
+			this.voidModelService.initializeModel(agentsMdURI)
+			// Ensure .gitignore contains .coderchat-editor/
+			this.skillService.ensureGitignore(uri)
 		}
 
 		// call

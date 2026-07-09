@@ -17,8 +17,8 @@ Write-Host "Success: fnm environment configured" -ForegroundColor Green
 Write-Host ""
 
 # Step 2: Switch to specified Node.js version
-Write-Host "[2/4] Switching to Node.js v20.18.2..." -ForegroundColor Yellow
-fnm use 20.18.2
+Write-Host "[2/4] Switching to Node.js v22.18.0..." -ForegroundColor Yellow
+fnm use 22.18.0
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Error: Node.js version switch failed" -ForegroundColor Red
     exit 1
@@ -31,7 +31,7 @@ Write-Host ""
 
 # Start watchreact (React compilation) in new window
 Write-Host "Starting React watch (npm run watchreact)..." -ForegroundColor Cyan
-Start-Process powershell -ArgumentList "-NoExit", "-Command", "fnm env --use-on-cd | Out-String | Invoke-Expression; fnm use 20.18.2; Write-Host 'React Watch Mode' -ForegroundColor Green; Write-Host '================================' -ForegroundColor Cyan; Write-Host ''; npm run watchreact" -WindowStyle Normal
+Start-Process powershell -ArgumentList "-NoExit", "-Command", "fnm env --use-on-cd | Out-String | Invoke-Expression; fnm use 22.18.0; Write-Host 'React Watch Mode' -ForegroundColor Green; Write-Host '================================' -ForegroundColor Cyan; Write-Host ''; npm run watchreact" -WindowStyle Normal
 Start-Sleep -Seconds 2
 
 

@@ -11,15 +11,15 @@ echo ""
 echo "[1/4] Verifying Node.js version..."
 NODE_VERSION=$(node --version 2>/dev/null)
 if [[ $? -ne 0 ]]; then
-    echo "Error: Node.js not found. Please install Node.js v20.18.2 via 'sudo n 20.18.2'"
+    echo "Error: Node.js not found. Please install Node.js v22.18.0 via 'sudo n 22.18.0'"
     exit 1
 fi
 
-REQUIRED="v20.18.2"
+REQUIRED="v22.18.0"
 if [[ "$NODE_VERSION" != "$REQUIRED" ]]; then
     echo "Warning: Current Node.js is $NODE_VERSION, expected $REQUIRED"
     echo "Switching to Node.js $REQUIRED via n..."
-    sudo n 20.18.2
+    sudo n 22.18.0
     if [[ $? -ne 0 ]]; then
         echo "Error: Node.js version switch failed"
         exit 1
@@ -47,17 +47,19 @@ echo ""
 echo "[3/4] Starting watch modes..."
 echo ""
 
-# Start npm run watch in background
-echo "Starting TypeScript watch (npm run watch)..."
-osascript -e 'tell application "Terminal" to do script "cd \"'"$PWD"'\" && npm run watch"' 2>/dev/null || \
-    (npm run watch &>/tmp/void-watch.log & echo "TypeScript watch started (PID: $!, log: /tmp/void-watch.log)")
-
-sleep 2
-
-# Start npm run watchreact in background
+# Start npm run watchreact in background - MUST start first
 echo "Starting React watch (npm run watchreact)..."
 osascript -e 'tell application "Terminal" to do script "cd \"'"$PWD"'\" && npm run watchreact"' 2>/dev/null || \
     (npm run watchreact &>/tmp/void-watchreact.log & echo "React watch started (PID: $!, log: /tmp/void-watchreact.log)")
+
+echo "React watch started, waiting 60 seconds for initial build..."
+# Wait 60 seconds for React to complete initial build before starting TypeScript watch
+sleep 60
+
+# Start npm run watch in background - starts AFTER React
+echo "Starting TypeScript watch (npm run watch)..."
+osascript -e 'tell application "Terminal" to do script "cd \"'"$PWD"'\" && npm run watch"' 2>/dev/null || \
+    (npm run watch &>/tmp/void-watch.log & echo "TypeScript watch started (PID: $!, log: /tmp/void-watch.log)")
 
 sleep 2
 

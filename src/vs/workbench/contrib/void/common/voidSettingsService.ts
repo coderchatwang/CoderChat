@@ -253,6 +253,16 @@ class VoidSettingsService extends Disposable implements IVoidSettingsService {
 		this._resolver = resolver
 
 		this.readAndInitializeState()
+
+		// 监听其他窗口对设置存储的修改（解决多窗口数据同步问题）
+		this._register(
+			this._storageService.onDidChangeValue(StorageScope.APPLICATION, VOID_SETTINGS_STORAGE_KEY, this._store)(e => {
+				// external 表示变更来自外部（其他窗口或进程）
+				if (e.external) {
+					this._mergeExternalSettingsChanges()
+				}
+			})
+		)
 	}
 
 
@@ -295,6 +305,18 @@ class VoidSettingsService extends Disposable implements IVoidSettingsService {
 
 			// add defaultLang feature
 			if (readS.globalSettings.defaultLang === undefined) readS.globalSettings.defaultLang = 'auto';
+
+			// add resetVisibleOnSend feature
+			if (readS.globalSettings.resetVisibleOnSend === undefined) readS.globalSettings.resetVisibleOnSend = true;
+
+			// add responseLanguage feature
+			if (readS.globalSettings.responseLanguage === undefined) readS.globalSettings.responseLanguage = 'auto';
+
+			// add responseLanguagePrompt feature
+			if (readS.globalSettings.responseLanguagePrompt === undefined) readS.globalSettings.responseLanguagePrompt = '';
+
+			// add showAllHistoryThreads feature
+			if (readS.globalSettings.showAllHistoryThreads === undefined) readS.globalSettings.showAllHistoryThreads = false;
 		}
 		catch (e) {
 			readS = defaultState()
@@ -390,6 +412,28 @@ class VoidSettingsService extends Disposable implements IVoidSettingsService {
 		const state = this.state
 		const encryptedState = await this._encryptionService.encrypt(JSON.stringify(state))
 		this._storageService.store(VOID_SETTINGS_STORAGE_KEY, encryptedState, StorageScope.APPLICATION, StorageTarget.USER);
+	}
+
+	/**
+	 * 合并来自其他窗口的设置变更
+	 * 解决多窗口场景下厂商和模型配置无法同步的问题
+	 */
+	private async _mergeExternalSettingsChanges(): Promise<void> {
+		try {
+			// 读取存储中的最新数据
+			const storedState = await this._readState()
+
+			// 更新内存状态（设置直接覆盖即可，没有并发编辑问题）
+			this.state = _stateWithMergedDefaultModels(storedState)
+			this.state = _validatedModelState(this.state)
+
+			// 通知 UI 更新
+			this._onDidChangeState.fire()
+
+			console.log('[VoidSettingsService] Merged external settings changes')
+		} catch (e) {
+			console.error('[VoidSettingsService] Failed to merge external changes:', e)
+		}
 	}
 
 	setSettingOfProvider: SetSettingOfProviderFn = async (providerName, settingName, newVal) => {
@@ -502,16 +546,14 @@ class VoidSettingsService extends Disposable implements IVoidSettingsService {
 	}
 
 	setOverridesOfModel = async (providerName: ProviderName, modelName: string, overrides: Partial<ModelOverrides> | undefined) => {
+		const providerOverrides = this.state.overridesOfModel[providerName] ?? {}
 		const newState: VoidSettingsState = {
 			...this.state,
 			overridesOfModel: {
 				...this.state.overridesOfModel,
 				[providerName]: {
-					...this.state.overridesOfModel[providerName],
-					[modelName]: overrides === undefined ? undefined : {
-						...this.state.overridesOfModel[providerName][modelName],
-						...overrides
-					},
+					...providerOverrides,
+					[modelName]: overrides,
 				}
 			}
 		};
@@ -580,7 +622,47 @@ class VoidSettingsService extends Disposable implements IVoidSettingsService {
 			...models.slice(0, delIdx), // delete the idx
 			...models.slice(delIdx + 1, Infinity)
 		]
-		this.setSettingOfProvider(providerName, 'models', newModels)
+
+		// 清除该模型的相关配置记录
+		// 1. 清除 overridesOfModel
+		const newOverridesOfModel = { ...this.state.overridesOfModel }
+		if (newOverridesOfModel[providerName]) {
+			const providerOverrides = { ...newOverridesOfModel[providerName] }
+			delete providerOverrides[modelName]
+			newOverridesOfModel[providerName] = providerOverrides
+		}
+
+		// 2. 清除 optionsOfModelSelection
+		const newOptionsOfModelSelection = { ...this.state.optionsOfModelSelection }
+		for (const featureName of featureNames) {
+			if (newOptionsOfModelSelection[featureName]?.[providerName]?.[modelName]) {
+				const featureOptions = newOptionsOfModelSelection[featureName] ?? {}
+				const providerOptions = { ...featureOptions[providerName]! }
+				delete providerOptions[modelName]
+				newOptionsOfModelSelection[featureName] = {
+					...featureOptions,
+					[providerName]: providerOptions,
+				}
+			}
+		}
+
+		// 使用 validatedModelState 来更新状态，它会自动处理 modelSelectionOfFeature
+		const newState = {
+			...this.state,
+			settingsOfProvider: {
+				...this.state.settingsOfProvider,
+				[providerName]: {
+					...this.state.settingsOfProvider[providerName],
+					models: newModels,
+				}
+			},
+			overridesOfModel: newOverridesOfModel,
+			optionsOfModelSelection: newOptionsOfModelSelection,
+		}
+		this.state = _validatedModelState(newState)
+
+		this._storeState()
+		this._onDidChangeState.fire()
 
 		this._metricsService.capture('Delete Model', { providerName, modelName })
 

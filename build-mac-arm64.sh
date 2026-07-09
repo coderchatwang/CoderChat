@@ -28,14 +28,14 @@ echo ""
 echo "[Pre-check] Checking Node.js..."
 NODE_VERSION=$(node --version 2>/dev/null)
 if [[ $? -ne 0 ]]; then
-    echo "Error: Node.js not found. Please install Node.js v20.18.2"
+    echo "Error: Node.js not found. Please install Node.js v22.18.0"
     exit 1
 fi
 
-REQUIRED="v20.18.2"
+REQUIRED="v22.18.0"
 if [[ "$NODE_VERSION" != "$REQUIRED" ]]; then
     echo "Switching to Node.js $REQUIRED via n..."
-    sudo n 20.18.2
+    sudo n 22.18.0
     NODE_VERSION=$(node --version)
 fi
 echo "Node.js version: $NODE_VERSION"
@@ -53,7 +53,7 @@ echo ""
 
 # Step 2: Compile TypeScript
 echo "[2/4] Compiling TypeScript..."
-npm run compile
+NODE_OPTIONS="--max-old-space-size=8192" npm run compile
 if [[ $? -ne 0 ]]; then
     echo "Error: TypeScript compilation failed"
     exit 1

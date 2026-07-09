@@ -3,14 +3,50 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
  *--------------------------------------------------------------------------------------*/
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { CopyButton, IconShell1 } from '../markdown/ApplyBlockHoverButtons.js';
-import { useAccessor, useAllThreadMetadata, useSortedThreadIds, useThreadMessages, useThreadStreamState } from '../util/services.js';
+import { useAccessor, useAllThreadMetadata, useSortedThreadIds, useThreadMessages, useThreadStreamState, useSettingsState } from '../util/services.js';
 import { Check, Copy, LoaderCircle, MessageCircleQuestion, Trash2, X } from 'lucide-react';
 import { useVoidChatI18n } from '../util/i18n.js';
 
 
 const numInitialThreads = 3
+
+// 获取当前项目ID的hook
+const useCurrentProjectId = () => {
+	const accessor = useAccessor()
+	const workspaceContextService = accessor.get('IWorkspaceContextService')
+
+	const [projectId, setProjectId] = useState<string | undefined>(() => {
+		const workspace = workspaceContextService.getWorkspace()
+		console.log('[SidebarThreadSelector] initial workspace:', workspace)
+		if (workspace.folders.length > 0) {
+			return workspace.folders[0].uri.fsPath
+		}
+		return undefined
+	})
+
+	useEffect(() => {
+		const updateProjectId = () => {
+			const workspace = workspaceContextService.getWorkspace()
+			console.log('[SidebarThreadSelector] updateProjectId - workspace:', workspace)
+			if (workspace.folders.length > 0) {
+				setProjectId(workspace.folders[0].uri.fsPath)
+			} else {
+				setProjectId(undefined)
+			}
+		}
+
+		// 初始更新
+		updateProjectId()
+
+		// 监听工作区变化
+		const disposable = workspaceContextService.onDidChangeWorkspaceFolders(updateProjectId)
+		return () => disposable.dispose()
+	}, [workspaceContextService])
+
+	return projectId
+}
 
 // Format date to display as today, yesterday, or date
 const formatDate = (date: Date, t: ReturnType<typeof useVoidChatI18n>) => {
@@ -115,13 +151,39 @@ const PastThreadElementMemo = ({ threadId, idx, hoveredIdx, setHoveredIdx }: {
 	const firstUserMsgIdx = messages.findIndex((msg) => msg.role === 'user')
 
 	if (firstUserMsgIdx !== -1) {
-		const firsUsertMsgObj = messages[firstUserMsgIdx]
-		firstMsg = firsUsertMsgObj.role === 'user' && firsUsertMsgObj.displayContent || ''
+		const firstUserMsgObj = messages[firstUserMsgIdx]
+		if (firstUserMsgObj.role === 'user') {
+			// Check if message has text content
+			const hasText = firstUserMsgObj.displayContent && firstUserMsgObj.displayContent.trim().length > 0
+			// Check if message has images
+			const hasImages = firstUserMsgObj.images && firstUserMsgObj.images.length > 0
+			
+			if (!hasText && hasImages) {
+				// Only images, no text
+				firstMsg = t.imageMessage()
+			} else if (hasText) {
+				// Has text content (possibly with images too)
+				// Truncate for display
+				const text = firstUserMsgObj.displayContent
+				if (text.length > 50) {
+					firstMsg = text.substring(0, 50) + '...'
+				} else {
+					firstMsg = text
+				}
+			} else {
+				firstMsg = t.chatTitle()
+			}
+		} else {
+			firstMsg = '""'
+		}
 	} else {
 		firstMsg = '""'
 	}
 
 	const numMessages = messages.filter((msg) => msg.role === 'assistant' || msg.role === 'user').length
+
+	// 获取项目名称（显示项目文件夹名，而不是完整路径）
+	const projectName = metadata?.projectId ? metadata.projectId.split(/[/\\]/).pop() : undefined
 
 	const detailsHTML = <span>
 		<span className='opacity-60'>{numMessages}</span>
@@ -156,6 +218,10 @@ const PastThreadElementMemo = ({ threadId, idx, hoveredIdx, setHoveredIdx }: {
 			<div className="flex items-center gap-x-1 opacity-60">
 				{idx === hoveredIdx ?
 					<>
+						{/* 消息条数 */}
+						<span className='text-xs'>{numMessages}</span>
+						{/* 项目名称（调试用） */}
+						{projectName && <span className='text-xs text-blue-400'>[{projectName}]</span>}
 						{/* duplicate icon */}
 						<DuplicateButton threadId={threadId} />
 						{/* trash icon */}
@@ -176,12 +242,38 @@ export const PastThreadsList = ({ className = '' }: { className?: string }) => {
 
 	const [hoveredIdx, setHoveredIdx] = useState<number | null>(null)
 
+	// 获取当前项目ID
+	const currentProjectId = useCurrentProjectId()
+
+	// 获取设置状态
+	const settingsState = useSettingsState()
+	const showAllHistoryThreads = settingsState.globalSettings.showAllHistoryThreads
+
 	// 使用细粒度选择器
 	const sortedThreadIds = useSortedThreadIds()
+	const allThreadMetadata = useAllThreadMetadata()
+
+	// 过滤只显示当前项目的会话，以及没有项目ID的旧会话（兼容旧数据）
+	// 如果 showAllHistoryThreads 为 true，则显示所有历史会话
+	const filteredThreadIds = useMemo(() => {
+		// 如果开启了显示所有历史会话，则不过滤
+		if (showAllHistoryThreads) {
+			return sortedThreadIds
+		}
+		return sortedThreadIds.filter(threadId => {
+			const metadata = allThreadMetadata[threadId]
+			// 如果没有项目ID（旧数据或没有项目时创建的），显示在所有项目中
+			if (!metadata?.projectId) return true
+			// 如果当前没有打开任何项目，显示所有会话
+			if (!currentProjectId) return true
+			// 如果有项目ID，只显示当前项目的
+			return metadata.projectId === currentProjectId
+		})
+	}, [sortedThreadIds, allThreadMetadata, currentProjectId, showAllHistoryThreads])
 
 	// Get only first 5 threads if not showing all
-	const hasMoreThreads = sortedThreadIds.length > numInitialThreads;
-	const displayThreads = showAll ? sortedThreadIds : sortedThreadIds.slice(0, numInitialThreads);
+	const hasMoreThreads = filteredThreadIds.length > numInitialThreads;
+	const displayThreads = showAll ? filteredThreadIds : filteredThreadIds.slice(0, numInitialThreads);
 
 	return (
 		<div className={`flex flex-col mb-2 gap-2 w-full text-nowrap text-void-fg-3 select-none relative ${className}`}>
@@ -205,7 +297,7 @@ export const PastThreadsList = ({ className = '' }: { className?: string }) => {
 					className="text-void-fg-3 opacity-80 hover:opacity-100 hover:brightness-115 cursor-pointer p-1 text-xs"
 					onClick={() => setShowAll(true)}
 				>
-					{t.showMore(sortedThreadIds.length - numInitialThreads)}
+					{t.showMore(filteredThreadIds.length - numInitialThreads)}
 				</div>
 			)}
 			{hasMoreThreads && showAll && (

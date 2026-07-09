@@ -17,7 +17,15 @@ export type ProviderName = keyof typeof defaultProviderSettings
 export const providerNames = Object.keys(defaultProviderSettings) as ProviderName[]
 
 export const localProviderNames = ['ollama', 'vLLM', 'lmStudio'] satisfies ProviderName[] // all local names
-export const nonlocalProviderNames = providerNames.filter((name) => !(localProviderNames as string[]).includes(name)) // all non-local names
+
+// Compatible API providers (for custom API endpoints, supports OpenAI/Anthropic compatible format)
+export const compatibleApiProviderNames = ['openAICompatible', 'openAICompatible2', 'openAICompatible3', 'openAICompatible4', 'openAICompatible5', 'openAICompatible6', 'openAICompatible7', 'openAICompatible8', 'openAICompatible9'] satisfies ProviderName[]
+
+// Main providers (non-local, non-compatible-api)
+export const nonlocalProviderNames = providerNames.filter((name) => 
+	!(localProviderNames as string[]).includes(name) && 
+	!(compatibleApiProviderNames as string[]).includes(name)
+) // all main provider names (excluding local and compatible API providers)
 
 type CustomSettingName = UnionOfKeys<typeof defaultProviderSettings[ProviderName]>
 type CustomProviderSettings<providerName extends ProviderName> = {
@@ -536,6 +544,21 @@ export type ChatMode = 'agent' | 'gather' | 'normal'
 
 export type DefaultLang = 'auto' | 'en' | 'zh'
 
+export type ResponseLanguage = 'auto' | 'zh' | 'en' | 'ja' | 'ko' | 'fr' | 'de' | 'es' | 'ru' | 'pt'
+
+export const defaultResponseLanguagePromptOfLanguage: Record<ResponseLanguage, string> = {
+	auto: '',
+	zh: '请使用中文回答',
+	en: 'Please answer in English',
+	ja: '日本語で回答してください',
+	ko: '한국어로 답변해 주세요',
+	fr: 'Veuillez répondre en français',
+	de: 'Bitte antworten Sie auf Deutsch',
+	es: 'Por favor responda en español',
+	ru: 'Пожалуйста, отвечайте на русском языке',
+	pt: 'Por favor, responda em português',
+}
+
 export type GlobalSettings = {
 	autoRefreshModels: boolean;
 	aiInstructions: string;
@@ -552,6 +575,11 @@ export type GlobalSettings = {
 	autoAcceptLLMChanges: boolean;
 	showJsonDebug: boolean;
 	defaultLang: DefaultLang;
+	resetVisibleOnSend: boolean;
+	responseLanguage: ResponseLanguage;
+	responseLanguagePrompt: string;
+	enableMarkdownCache: boolean;
+	showAllHistoryThreads: boolean;
 }
 
 export const defaultGlobalSettings: GlobalSettings = {
@@ -570,6 +598,11 @@ export const defaultGlobalSettings: GlobalSettings = {
 	autoAcceptLLMChanges: false,
 	showJsonDebug: false,
 	defaultLang: 'auto',
+	resetVisibleOnSend: true,
+	responseLanguage: 'auto',
+	responseLanguagePrompt: '',
+	enableMarkdownCache: false,
+	showAllHistoryThreads: false,
 }
 
 export type GlobalSettingName = keyof GlobalSettings

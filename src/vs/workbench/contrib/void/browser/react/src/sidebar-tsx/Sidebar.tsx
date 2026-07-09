@@ -15,7 +15,7 @@ export const Sidebar = ({ className }: { className: string }) => {
 
 	const isDark = useIsDark()
 	return <div
-		className={`@@void-scope ${isDark ? 'dark' : ''}`}
+		className={`@@void-scope ${isDark ? 'void-dark' : ''}`}
 		style={{ width: '100%', height: '100%' }}
 	>
 		<div

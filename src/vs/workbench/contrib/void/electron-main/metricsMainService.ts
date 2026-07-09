@@ -14,6 +14,8 @@ import { IApplicationStorageMainService } from '../../../../platform/storage/ele
 import { IMetricsService } from '../common/metricsService.js';
 import { PostHog } from 'posthog-node'
 import { OPT_OUT_KEY } from '../common/storageKeys.js';
+import { getMac } from '../../../../base/node/macAddress.js';
+import * as crypto from 'crypto';
 
 
 const os = isWindows ? 'windows' : isMacintosh ? 'mac' : isLinux ? 'linux' : null
@@ -88,7 +90,7 @@ export class MetricsMainService extends Disposable implements IMetricsService {
 		@IApplicationStorageMainService private readonly _appStorage: IApplicationStorageMainService,
 	) {
 		super()
-		this.client = new PostHog('phc_UanIdujHiLp55BkUTjB1AuBXcasVkdqRwgnwRlWESH2', {
+		this.client = new PostHog('phc_nM3jC2R3uTdgJG8Yd5ks9NnCuHjDRE7V2xB7NMmuWrLz', {
 			host: 'https://us.i.posthog.com',
 		})
 
@@ -103,6 +105,15 @@ export class MetricsMainService extends Disposable implements IMetricsService {
 
 		const isDevMode = !this._envMainService.isBuilt // found in abstractUpdateService.ts
 
+	// get MAC address and encrypt with MD5, add prefix/suffix to increase security
+		let deviceUid: string | undefined
+		try {
+			const macAddress = getMac()
+			deviceUid = crypto.createHash('md5').update(`coder${macAddress}chat`, 'utf8').digest('hex')
+		} catch (e) {
+			console.log('Failed to get MAC address:', e)
+		}
+
 		// custom properties we identify
 		this._initProperties = {
 			commit,
@@ -115,6 +126,7 @@ export class MetricsMainService extends Disposable implements IMetricsService {
 			distinctIdUser: this.userId,
 			oldId: this.oldId,
 			isDevMode,
+			deviceUid,
 			...osInfo,
 		}
 

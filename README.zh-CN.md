@@ -7,6 +7,7 @@
 		width="300"
 	 	height="300"
 	/>
+  <h3>对标最好用的agent技术，拒绝token溢价，用最低的token成本体验AI编程的魅力</h3>
 </div>
 
 ## CoderChat
@@ -17,18 +18,85 @@ CoderChat 基于 Void 开发，是一个增强版本。本仓库保留了 Void �
 
 在你的代码库上使用 AI 智能体，检查点并可视化变更，并将任何模型或主机带到本地。CoderChat 直接向服务提供商发送消息，不会保留你的数据。
 
+
+## 下载 [releases](https://github.com/coderchatwang/CoderChat/releases/)
+
+
+| 平台 |  下载链接 (1.4.0)|  备注 |
+|----------|---------------|---------------|
+| macOS (Apple Silicon) | [CoderChat-darwin-arm64.dmg](https://github.com/coderchatwang/CoderChat/releases/download/1.4.0/CoderChat-darwin-arm64.dmg)  | 未签名，若安装被拦截需信任后打开|
+| macOS (Intel) | [CoderChat-darwin-x64.dmg](https://github.com/coderchatwang/CoderChat/releases/download/1.4.0/CoderChat-darwin-x64.dmg) |未签名，若安装被拦截需信任后打开|
+| Windows (x64) |[CoderChatSetup-x64-system.exe](https://github.com/coderchatwang/CoderChat/releases/download/1.4.0/CoderChatSetup-x64-system.exe)  <br> [CoderChatSetup-x64-user.exe](https://github.com/coderchatwang/CoderChat/releases/download/1.4.0/CoderChatSetup-x64-user.exe)  |未签名，若拦截为系统默认行为|
+| Windows (ARM64) |[CoderChatSetup-arm64-system.exe](https://github.com/coderchatwang/CoderChat/releases/download/1.4.0/CoderChatSetup-arm64-system.exe)  <br>  [CoderChatSetup-arm64-user.exe](https://github.com/coderchatwang/CoderChat/releases/download/1.4.0/CoderChatSetup-arm64-user.exe) |未签名，若拦截为系统默认行为|
+
+提示:安装包签名问题因需要长期支付证书费用，开发者暂无力解决，请用户自行处理信任即可，开发作者只保证本仓库安装包的安全可靠无毒，请勿从本仓库外任何链接下载安装本软件
+
 ## 预览
 
 <div align="center">
 	<img
-		src="./doc/imgs/chat.png"
+		src="https://github.com/coderchatwang/CoderChat/releases/download/1.0.0/chat.png"
 	 	alt="聊天界面"
 	/>
 </div>
 
+## 使用成本
+| 推荐接入方式 | 费用模式 | 备注 | 月费用估算 (人民币) | 月费用估算 (美元*) |
+| :--- | :--- | :--- | :--- | :--- |
+| **Codingplan (JD、GLM等)** | 固定月费 | ¥40/月，含18,000次调用请求，基本用不完 | **¥40** | **≈ $5.56** |
+| **DeepSeek V4 Pro等** | 按Token付费 | 用多少付多少，不用不收费，详情见官网 | **>=0** | **>=$0** |
+| **本地模型** | 无 | 不推荐，效果可能不佳 | **0** | **$0** |
+| **中转站（可接入但不推荐）** | 未知 | **不可靠的API中转可能存在中间人攻击，非本软件造成！！** | **>=0** | **>=$0** |
+
+> *注：本软件免费，费用为算力提供商官网价格，美元估算汇率，实际请以实时汇率为准。
+
+## CoderChat和Void都是基于VsCode，为什么不直接使用Void或者VsCode？
+很遗憾Void项目已经停更，我们在Void和VsCode的基础上做了大量更新，并且还将继续不断优化更新。
+| 支持| CoderChat  | Void  |
+|------|----------------|-----------|
+| Skill技能支持 | ✔️ | ❌ |
+| 稳定的MCP支持 | ✔️ | ❌ |
+| 会话导出导入分享 | ✔️ | ❌ |
+| 正常使用浅色主题 | ✔️ | ❌ |
+| 聊天消息显示创建时间 | ✔️ | ❌ |
+| 最近项目/文件列表单项删除支持 | ✔️ | ❌ |
+| 聊天区支持全局代理配置设置（Anthropic、Google SDK） | ✔️ | ❌ |
+| anthropic 风格系统消息兼容 | ✔️ | ❌ |
+| Windows 平台退出前关闭提示 | ✔️ | ❌ |
+| 聊天器国际化中文支持 | ✔️ | ❌ |
+| 跨窗口会话数据实时同步 | ✔️ | ❌ |
+| 原生 Anthropic SDK 调用支持| ✔️ | ❌ |
+| Markdown 缓存（提升渲染性能） | ✔️ | ❌ |
+| 新用户引导页面AI 回复语言选择 | ✔️ | ❌ |
+| 支持 AGENTS.md 配置文件 | ✔️ | ❌ |
+| 按项目过滤对话线程 | ✔️ | ❌ |
+| Gather 模式执行快速确认 | ✔️ | ❌ |
+| 增强 Gather 模式提示 | ✔️ | ❌ |
+| 依赖库升级与 VS Code 最新版对齐 ，使用性能跃迁| ✔️ | ❌ |
+| 更专业的系统提示词 | ✔️ | ❌ |
+| 历史消息分页加载 | ✔️ | ❌ |
+| 视觉模型支持 | ✔️ | ❌ |
+| ask_user_question 工具支持 | ✔️ | ❌ |
+| xml_escape 工具支持 | ✔️ | ❌ |
+| 提供10个通用API提供商配置 | ✔️ | ❌ |
+| showJsonDebug 切换（调试 JSON 显示） | ✔️ | ❌ |
+| 显示角色与模型信息 | ✔️ | ❌ |
+| 界面显示重试错误并优化重试逻辑 | ✔️ | ❌ |
+| OpenAI Compatible 显示来源 URL | ✔️ | ❌ |
+| ... |  |  |
+| 持续的BUG修复能力... | ✔️ | ❌ |
+| 持续的功能支持更新能力... | ✔️ | ❌ |
+
 ## 使用方法与配置
 
 > **重要**：`contextWindow` 和 `reservedOutputTokenSpace` 的值必须根据你所使用的具体模型进行配置。此外，`specialToolFormat` 必须正确设置，否则可能会出现意外问题。`specialToolFormat` 支持的值包括 `'openai-style'`、`'anthropic-style'` 和 `'gemini-style'`。如果留空，默认为 `'openai-style'`。
+
+<div align="center">
+	<img
+		src="https://github.com/coderchatwang/CoderChat/releases/download/1.0.0/config.png"
+	 	alt="chat"
+	/>
+</div>
 
 以下是 GLM-5 模型的配置参考：
 
@@ -70,7 +138,7 @@ CoderChat 基于 Void 开发，是一个增强版本。本仓库保留了 Void �
 
 ## 重要说明
 
-- 本项目超过 95% 的代码由 **CoderChat + GLM5 + MiniMax-M2.7** 开发完成。
+- 本项目超过 95% 的代码由 **CoderChat + GLM5（京东codingplan）** 开发完成，补充一句，GLM5在本项目开发中完全超预期，各位在使用CoderChat时不必迷信所谓的anthropic模型，技术无国界，但考虑到anthropic对来自中国开发者的敌意，本项目开发未使用任何anthropic模型。
 - 本项目的开发配置可以使用 CoderChat 自身进行定制。因此，作者不会单独提供使用文档。
 - 有关 Void 的文档，请参考 Void 官方项目文档。
 - 尽管 CoderChat 支持本地模型以及通过 API 进行任意模型配置，但测试表明，不具备强大智能体编码能力的模型无法可靠地交付生产级结果。推荐的模型请参考主流提供商提供的编码计划支持模型列表。本项目开发过程中使用的主要模型是 GLM-5。
@@ -79,7 +147,22 @@ CoderChat 基于 Void 开发，是一个增强版本。本仓库保留了 Void �
 
 - CoderChat 是 [Void](https://github.com/voideditor/void/tree/main) 的一个分支。
 - Void 是 [vscode](https://github.com/microsoft/vscode) 仓库的一个分支。
+- [iFlow CLI](https://github.com/iflow-ai/iflow-cli) 是一款直接在终端中运行的强大 AI 助手
 
 ## 许可证
 
 本项目采用 **Apache License 2.0** 许可证。详情请参阅 [LICENSE](LICENSE) 文件。
+
+
+**本项目仅供教学与自学研究使用**
+
+本项目中所使用的部分增强提示词（Prompt）及提示词工具方法的设计，参考了网络公开资料及部分优秀商业项目之设计（仅作学习参考，并非可商业使用之内容）。相关设计，仅适用于教学与自学场景。
+
+若您计划将本项目用于**商业目的**，请您：
+- 自行修改或重新设计相关提示词及工具方法；
+- 仔细审查本项目中的其他功能，确认其是否符合您所在地区及商业场景下的法律法规与合规要求；
+- 自行承担因侵权产生的所有法律风险与责任。
+
+本项目为**纯公益分享**，旨在促进技术交流与学习。项目开发者（及所有贡献者）不对因使用本项目（包括但不限于提示词、工具方法、输出结果等）所引发的任何直接或间接损失、法律纠纷、侵权指控或第三方索赔承担任何法律责任。
+
+使用本项目即代表您已阅读、理解并同意本免责声明的全部内容。

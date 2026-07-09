@@ -64,6 +64,7 @@ export type ChatMessage =
 			stagingSelections: StagingSelectionItem[];
 			isBeingEdited: boolean;
 		}
+		createdAt: number | null; // timestamp when message was created (in milliseconds)
 	}
 	| {
 		role: 'assistant';
@@ -80,6 +81,7 @@ export type ChatMessage =
 		// LLM request timing
 		startTime: number | null; // timestamp when LLM request started (in milliseconds)
 		endTime: number | null; // timestamp when LLM request ended (in milliseconds)
+		createdAt: number | null; // timestamp when message was created (in milliseconds)
 	}
 	| ToolMessage<ToolName>
 	| DecorativeCanceledTool

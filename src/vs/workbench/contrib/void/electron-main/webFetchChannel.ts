@@ -10,10 +10,12 @@ import * as https from 'https';
 import { URL } from 'url';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
+import { convert } from 'html-to-text';
 
 export interface WebFetchRequestParams {
 	url: string;
 	timeout?: number;
+	stripHtml?: boolean;
 }
 
 export interface WebFetchResult {
@@ -59,11 +61,29 @@ export class WebFetchChannel implements IServerChannel {
 	}
 
 	private async _fetch(params: WebFetchRequestParams): Promise<WebFetchResult> {
-		const { url, timeout = 30000 } = params;
+		const { url, timeout = 30000, stripHtml = false } = params;
 		const proxyConfig = this.getProxyConfig();
 
 		try {
 			const result = await this._doFetch(url, proxyConfig, timeout);
+
+			// Strip HTML tags if requested
+			if (stripHtml && result.content) {
+				try {
+					result.content = convert(result.content, {
+						wordwrap: 130,
+						selectors: [
+							{ selector: 'a', options: { ignoreHref: true } },
+							{ selector: 'img', format: 'skip' },
+							{ selector: 'script', format: 'skip' },
+							{ selector: 'style', format: 'skip' },
+						],
+					})
+				} catch (convertError) {
+					console.warn(`[WebFetch] Failed to strip HTML: ${convertError}`)
+				}
+			}
+
 			return result;
 		} catch (error) {
 			const errorMessage = error instanceof Error ? error.message : String(error);

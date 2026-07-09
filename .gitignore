@@ -5,6 +5,7 @@ npm-debug.log
 Thumbs.db
 node_modules/
 .build/
+.coderchat-editor/
 .vscode/extensions/**/out/
 extensions/**/dist/
 /out*/
@@ -29,3 +30,5 @@ product.overrides.json
 .tool-versions
 src/vs/workbench/contrib/void/browser/react/out/**
 src/vs/workbench/contrib/void/browser/react/src2/**
+installer-output/
+dmg/

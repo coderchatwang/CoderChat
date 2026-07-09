@@ -14,7 +14,7 @@ import { CodeEditorWidget } from '../../../../../../../editor/browser/widget/cod
 import { useAccessor } from './services.js';
 import { ITextModel } from '../../../../../../../editor/common/model.js';
 import { asCssVariable } from '../../../../../../../platform/theme/common/colorUtils.js';
-import { inputBackground, inputForeground } from '../../../../../../../platform/theme/common/colorRegistry.js';
+import { inputBackground,inputBackgroundRevert,inputForeground } from '../../../../../../../platform/theme/common/colorRegistry.js';
 import { useFloating, autoUpdate, offset, flip, shift, size, autoPlacement } from '@floating-ui/react';
 import { URI } from '../../../../../../../base/common/uri.js';
 import { getBasename, getFolderName } from '../sidebar-tsx/SidebarChat.js';
@@ -151,23 +151,26 @@ function getRelativeWorkspacePath(accessor: ReturnType<typeof useAccessor>, uri:
 		b.uri.fsPath.length - a.uri.fsPath.length
 	);
 
-	// Add trailing slash to paths for exact matching
-	const uriPath = uri.fsPath.endsWith('/') ? uri.fsPath : uri.fsPath + '/';
+	// Normalize paths to use consistent separators for comparison
+	// On Windows, fsPath uses backslashes, so we normalize both to use the same separator
+	const normalizePath = (p: string) => p.replace(/[/\\]/g, '/').toLowerCase();
+
+	// Normalize the URI path for comparison
+	const normalizedUriPath = normalizePath(uri.fsPath);
 
 	// Check if the URI is inside any workspace folder
 	for (const folder of sortedFolders) {
+		const normalizedFolderPath = normalizePath(folder.uri.fsPath);
+		const folderPathWithSep = normalizedFolderPath.endsWith('/') ? normalizedFolderPath : normalizedFolderPath + '/';
 
-
-		const folderPath = folder.uri.fsPath.endsWith('/') ? folder.uri.fsPath : folder.uri.fsPath + '/';
-		if (uriPath.startsWith(folderPath)) {
+		// Check if URI is inside this folder (either starts with folder/ or equals folder exactly)
+		if (normalizedUriPath === normalizedFolderPath || normalizedUriPath.startsWith(folderPathWithSep)) {
 			// Calculate the relative path by removing the workspace folder path
 			let relativePath = uri.fsPath.slice(folder.uri.fsPath.length);
-			// Remove leading slash if present
-			if (relativePath.startsWith('/')) {
+			// Remove leading separator if present
+			if (relativePath.startsWith('/') || relativePath.startsWith('\\')) {
 				relativePath = relativePath.slice(1);
 			}
-			// console.log({ folderPath, relativePath, uriPath });
-
 			return relativePath;
 		}
 	}
@@ -220,16 +223,20 @@ const getOptionsAtPath = async (accessor: ReturnType<typeof useAccessor>, path: 
 				// Extract unique directory paths from the results
 				const directoryMap = new Map<string, URI>();
 
+				// Get workspace info once
+				const workspaceService = accessor.get('IWorkspaceContextService');
+				const workspaceFolders = workspaceService.getWorkspace().folders;
+
+				// Normalize path for comparison (Windows uses backslashes)
+				const normalizePath = (p: string) => p.replace(/[/\\]/g, '/').toLowerCase();
+
 				for (const uri of searchResults) {
 					if (!uri) continue;
 
 					// Get the full path and extract directories
 					const relativePath = getRelativeWorkspacePath(accessor, uri)
-					const pathParts = relativePath.split('/');
-
-					// Get workspace info
-					const workspaceService = accessor.get('IWorkspaceContextService');
-					const workspaceFolders = workspaceService.getWorkspace().folders;
+					// Use regex to split on both / and \ for cross-platform compatibility
+					const pathParts = relativePath.split(/[/\\]/);
 
 					// Find the workspace folder containing this URI
 					let workspaceFolderUri: URI | undefined;
@@ -239,12 +246,14 @@ const getOptionsAtPath = async (accessor: ReturnType<typeof useAccessor>, path: 
 							b.uri.fsPath.length - a.uri.fsPath.length
 						);
 
+						const normalizedUriPath = normalizePath(uri.fsPath);
+
 						// Find the containing workspace folder
 						for (const folder of sortedFolders) {
-							const folderPath = folder.uri.fsPath.endsWith('/') ? folder.uri.fsPath : folder.uri.fsPath + '/';
-							const uriPath = uri.fsPath.endsWith('/') ? uri.fsPath : uri.fsPath + '/';
+							const normalizedFolderPath = normalizePath(folder.uri.fsPath);
+							const folderPathWithSep = normalizedFolderPath.endsWith('/') ? normalizedFolderPath : normalizedFolderPath + '/';
 
-							if (uriPath.startsWith(folderPath)) {
+							if (normalizedUriPath === normalizedFolderPath || normalizedUriPath.startsWith(folderPathWithSep)) {
 								workspaceFolderUri = folder.uri;
 								break;
 							}
@@ -354,8 +363,9 @@ type InputBox2Props = {
 	onFocus?: (e: React.FocusEvent<HTMLTextAreaElement>) => void;
 	onBlur?: (e: React.FocusEvent<HTMLTextAreaElement>) => void;
 	onChangeHeight?: (newHeight: number) => void;
+	showBorder?: boolean;
 }
-export const VoidInputBox2 = forwardRef<HTMLTextAreaElement, InputBox2Props>(function X({ initValue, placeholder, multiline, enableAtToMention, fnsRef, className, onKeyDown, onFocus, onBlur, onChangeText }, ref) {
+export const VoidInputBox2 = forwardRef<HTMLTextAreaElement, InputBox2Props>(function X({ initValue, placeholder, multiline, enableAtToMention, fnsRef, className, onKeyDown, onFocus, onBlur, onChangeText, showBorder }, ref) {
 
 	const t = useVoidChatI18n()
 
@@ -755,12 +765,10 @@ export const VoidInputBox2 = forwardRef<HTMLTextAreaElement, InputBox2Props>(fun
 
 			disabled={!isEnabled}
 
-			className={`w-full resize-none max-h-[500px] overflow-y-auto text-void-fg-1 placeholder:text-void-fg-3 ${className}`}
+			className={`w-full resize-none max-h-[500px] overflow-y-auto text-void-fg-1 placeholder:text-void-fg-3 ${showBorder ? 'border border-void-border-2 rounded-sm' : ''} ${className}`}
 			style={{
-				// defaultInputBoxStyles
-				background: asCssVariable(inputBackground),
+				background: showBorder ? asCssVariable(inputBackgroundRevert) : 'transparent',
 				color: asCssVariable(inputForeground)
-				// inputBorder: asCssVariable(inputBorder),
 			}}
 
 			onInput={useCallback((event: React.FormEvent<HTMLTextAreaElement>) => {
@@ -779,11 +787,20 @@ export const VoidInputBox2 = forwardRef<HTMLTextAreaElement, InputBox2Props>(fun
 			}, [onChangeText, adjustHeight])}
 
 			onPaste={useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-				// Allow the paste to complete first, then update state
+				// 同步获取粘贴内容并更新状态，避免发送按钮显示禁用的问题
+				const pastedText = e.clipboardData.getData('text')
+				const textarea = textAreaRef.current
+				if (textarea) {
+					const currentValue = textarea.value || ''
+					const selectionStart = textarea.selectionStart || 0
+					const selectionEnd = textarea.selectionEnd || 0
+					// 计算粘贴后的值
+					const newValue = currentValue.substring(0, selectionStart) + pastedText + currentValue.substring(selectionEnd)
+					// 同步更新状态，确保发送按钮状态立即更新
+					onChangeText?.(newValue)
+				}
+				// 高度调整延迟执行
 				requestAnimationFrame(() => {
-					const r = textAreaRef.current
-					if (!r) return
-					onChangeText?.(r.value)
 					adjustHeight()
 				})
 			}, [onChangeText, adjustHeight])}
@@ -889,7 +906,7 @@ export const VoidInputBox2 = forwardRef<HTMLTextAreaElement, InputBox2Props>(fun
 })
 
 
-export const VoidSimpleInputBox = ({ value, onChangeValue, placeholder, className, disabled, passwordBlur, compact, ...inputProps }: {
+export const VoidSimpleInputBox = ({ value, onChangeValue, placeholder, className, disabled, passwordBlur, compact, label, ...inputProps }: {
 	value: string;
 	onChangeValue: (value: string) => void;
 	placeholder: string;
@@ -897,6 +914,7 @@ export const VoidSimpleInputBox = ({ value, onChangeValue, placeholder, classNam
 	disabled?: boolean;
 	compact?: boolean;
 	passwordBlur?: boolean;
+	label?: string; // 输入框左侧标签
 } & React.InputHTMLAttributes<HTMLInputElement>) => {
 	// Create a ref for the input element to maintain the same DOM node between renders
 	const inputRef = useRef<HTMLInputElement>(null);
@@ -929,10 +947,46 @@ export const VoidSimpleInputBox = ({ value, onChangeValue, placeholder, classNam
 		onChangeValue(e.target.value);
 	}, [onChangeValue]);
 
+
+	// 如果有 label，包装在 flex 容器中
+	if (label) {
+		// 解析 label，支持 "label*" 格式表示必填
+		const isRequired = label.endsWith('*')
+		const labelText = isRequired ? label.slice(0, -1) : label
+
+		return (
+			<div className="flex items-center gap-2 w-full">
+				<label className="text-void-fg-3 text-sm shrink-0 min-w-[70px]">
+					{labelText}
+					{isRequired && <span className="text-red-500 ml-0.5">*</span>}
+				</label>
+				<input
+					ref={inputRef}
+					defaultValue={value}
+					onChange={handleChange}
+					placeholder={placeholder}
+					disabled={disabled}
+					className={`flex-1 resize-none bg-void-bg-1 text-void-fg-1 placeholder:text-void-fg-3 border border-void-border-2 focus:border-void-border-1
+						${compact ? 'py-1 px-2' : 'py-2 px-4 '}
+						rounded
+						${disabled ? 'opacity-50 cursor-not-allowed' : ''}
+						${className}`}
+					style={{
+						...passwordBlur && { WebkitTextSecurity: 'disc' },
+						background: asCssVariable(inputBackground),
+						color: asCssVariable(inputForeground)
+					}}
+					{...inputProps}
+					type={undefined}
+				/>
+			</div>
+		);
+	}
+
 	return (
 		<input
 			ref={inputRef}
-			defaultValue={value} // Use defaultValue instead of value to avoid recreation
+			defaultValue={value}
 			onChange={handleChange}
 			placeholder={placeholder}
 			disabled={disabled}
@@ -947,7 +1001,7 @@ export const VoidSimpleInputBox = ({ value, onChangeValue, placeholder, classNam
 				color: asCssVariable(inputForeground)
 			}}
 			{...inputProps}
-			type={undefined} // VS Code is doing some annoyingness that breaks paste if this is defined
+			type={undefined}
 		/>
 	);
 };
@@ -1195,7 +1249,7 @@ export const VoidSwitch = ({
 				className={`
 			cursor-pointer
 			relative inline-flex items-center rounded-full transition-colors duration-200 ease-in-out
-			${value ? 'bg-zinc-900 dark:bg-white' : 'bg-white dark:bg-zinc-600'}
+			${value ? 'bg-vscode-input-activeOptionBg' : 'bg-vscode-input-optionHoverBg'}
 			${disabled ? 'opacity-25' : ''}
 			${size === 'xxs' ? 'h-3 w-5' : ''}
 			${size === 'xs' ? 'h-4 w-7' : ''}
@@ -1206,7 +1260,7 @@ export const VoidSwitch = ({
 			>
 				<span
 					className={`
-			  inline-block transform rounded-full bg-white dark:bg-zinc-900 shadow transition-transform duration-200 ease-in-out
+			  inline-block transform rounded-full bg-void-fg-1 shadow transition-transform duration-200 ease-in-out
 			  ${size === 'xxs' ? 'h-2 w-2' : ''}
 			  ${size === 'xs' ? 'h-2.5 w-2.5' : ''}
 			  ${size === 'sm' ? 'h-3 w-3' : ''}
@@ -1275,6 +1329,7 @@ export const VoidCustomDropdownBox = <T extends NonNullable<any>>({
 	matchInputWidth = false,
 	gapPx = 0,
 	offsetPx = -6,
+	zIndex,
 }: {
 	options: T[];
 	selectedOption: T | undefined;
@@ -1288,6 +1343,7 @@ export const VoidCustomDropdownBox = <T extends NonNullable<any>>({
 	matchInputWidth?: boolean;
 	gapPx?: number;
 	offsetPx?: number;
+	zIndex?: number;
 }) => {
 	const [isOpen, setIsOpen] = useState(false);
 	const measureRef = useRef<HTMLDivElement>(null);
@@ -1427,11 +1483,13 @@ export const VoidCustomDropdownBox = <T extends NonNullable<any>>({
 			{isOpen && (
 				<div
 					ref={refs.setFloating}
-					className="z-[100] bg-void-bg-1 border-void-border-3 border rounded shadow-lg"
+					className="bg-void-bg-1 border-void-border-3 border rounded shadow-lg"
+					data-void-dropdown-open="true"
 					style={{
 						position: strategy,
 						top: y ?? 0,
 						left: x ?? 0,
+						zIndex: zIndex ?? 100,
 						width: (matchInputWidth
 							? (refs.reference.current instanceof HTMLElement ? refs.reference.current.offsetWidth : 0)
 							: Math.max(
@@ -1449,7 +1507,7 @@ export const VoidCustomDropdownBox = <T extends NonNullable<any>>({
 
 							return (
 								<div
-									key={optionName}
+									key={optionName + optionDetail}
 									className={`flex items-center px-2 py-1 pr-4 cursor-pointer whitespace-nowrap
 									transition-all duration-100
 									${thisOptionIsSelected ? 'bg-blue-500 text-white/80' : 'hover:bg-blue-500 hover:text-white/80'}
@@ -1858,7 +1916,7 @@ export const VoidButtonBgDarken = ({ children, disabled, onClick, className }: {
 
 
 
-const SingleDiffEditor = ({ block, lang }: { block: ExtractedSearchReplaceBlock, lang: string | undefined }) => {
+const SingleDiffEditor = ({ block, lang, showRightOnly }: { block: ExtractedSearchReplaceBlock, lang: string | undefined, showRightOnly?: boolean }) => {
 	const accessor = useAccessor();
 	const modelService = accessor.get('IModelService');
 	const instantiationService = accessor.get('IInstantiationService');
@@ -1897,7 +1955,7 @@ const SingleDiffEditor = ({ block, lang }: { block: ExtractedSearchReplaceBlock,
 			{
 				automaticLayout: true,
 				readOnly: true,
-				renderSideBySide: true,
+				renderSideBySide: !showRightOnly, // When showRightOnly is true, render inline (only shows modified side)
 				minimap: { enabled: false },
 				lineNumbers: 'off',
 				scrollbar: {
@@ -1919,7 +1977,7 @@ const SingleDiffEditor = ({ block, lang }: { block: ExtractedSearchReplaceBlock,
 				stickyScroll: { enabled: false },
 				scrollBeyondLastLine: false,
 				renderGutterMenu: false,
-				renderIndicators: false,
+				renderIndicators: !showRightOnly, // Hide indicators when showing only right side
 			},
 			{ originalEditor: { isSimpleWidget: true }, modifiedEditor: { isSimpleWidget: true } }
 		);
@@ -1953,7 +2011,7 @@ const SingleDiffEditor = ({ block, lang }: { block: ExtractedSearchReplaceBlock,
 			editor.dispose();
 			editorRef.current = null;
 		};
-	}, [originalModel, modifiedModel, instantiationService]);
+	}, [originalModel, modifiedModel, instantiationService, showRightOnly]);
 
 	return (
 		<div className="w-full bg-void-bg-3 @@bg-editor-style-override" ref={divRef} />
@@ -1970,8 +2028,9 @@ const SingleDiffEditor = ({ block, lang }: { block: ExtractedSearchReplaceBlock,
  *   - uri: URI of the file (for language detection, etc)
  *   - searchReplaceBlocks: string in search/replace format (from LLM)
  *   - language?: string (optional, fallback to 'plaintext')
+ *   - showRightOnly?: boolean (optional, when true only shows the modified/right side)
  */
-export const VoidDiffEditor = ({ uri, searchReplaceBlocks, language }: { uri?: any, searchReplaceBlocks: string, language?: string }) => {
+export const VoidDiffEditor = ({ uri, searchReplaceBlocks, language, showRightOnly }: { uri?: any, searchReplaceBlocks: string, language?: string, showRightOnly?: boolean }) => {
 	const t = useVoidChatI18n()
 	const accessor = useAccessor();
 	const languageService = accessor.get('ILanguageService');
@@ -2000,7 +2059,7 @@ export const VoidDiffEditor = ({ uri, searchReplaceBlocks, language }: { uri?: a
 							Change {index + 1} of {blocks.length}
 						</div>
 					)}
-					<SingleDiffEditor block={block} lang={lang} />
+					<SingleDiffEditor block={block} lang={lang} showRightOnly={showRightOnly} />
 				</div>
 			))}
 		</div>

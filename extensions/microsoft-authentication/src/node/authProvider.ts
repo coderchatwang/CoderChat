@@ -211,7 +211,7 @@ export class MsalAuthProvider implements AuthenticationProvider {
 		};
 
 		const flows = getMsalFlows({
-			extensionHost: typeof navigator === 'undefined'
+			extensionHost: typeof (globalThis as any).navigator === 'undefined'
 				? this._context.extension.extensionKind === ExtensionKind.UI ? ExtensionHost.Local : ExtensionHost.Remote
 				: ExtensionHost.WebWorker,
 		});

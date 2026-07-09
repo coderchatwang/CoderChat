@@ -24,8 +24,8 @@ export function serveFileSystemRequests(client: BaseLanguageClient, runtime: Run
 		if (uri.scheme === 'file' && runtime.fs) {
 			return runtime.fs.getContent(param.uri);
 		}
-		return workspace.fs.readFile(uri).then(buffer => {
-			return new runtime.TextDecoder(param.encoding).decode(buffer);
+	return workspace.fs.readFile(uri).then(buffer => {
+			return new runtime.TextDecoder(param.encoding).decode(buffer as unknown as ArrayBuffer);
 		});
 	});
 	client.onRequest(FsReadDirRequest.type, (uriString: string) => {

@@ -12,7 +12,7 @@ import { URI } from '../../../base/common/uri.js';
 import { ILogService, LogLevel as LogServiceLevel } from '../../../platform/log/common/log.js';
 import { IExtensionDescription } from '../../../platform/extensions/common/extensions.js';
 import { LogLevel, createHttpPatch, createProxyResolver, createTlsPatch, ProxySupportSetting, ProxyAgentParams, createNetPatch, loadSystemCertificates, ResolveProxyWithRequest } from '@vscode/proxy-agent';
-import { AuthInfo } from '../../../platform/request/common/request.js';
+import { AuthInfo, systemCertificatesNodeDefault } from '../../../platform/request/common/request.js';
 import { DisposableStore } from '../../../base/common/lifecycle.js';
 import { createRequire } from 'node:module';
 import type * as undiciType from 'undici-types';
@@ -51,7 +51,9 @@ export function connectProxyResolver(
 		getProxySupport: () => getExtHostConfigValue<ProxySupportSetting>(configProvider, isRemote, 'http.proxySupport') || 'off',
 		getNoProxyConfig: () => getExtHostConfigValue<string[]>(configProvider, isRemote, 'http.noProxy') || [],
 		isAdditionalFetchSupportEnabled: () => getExtHostConfigValue<boolean>(configProvider, isRemote, 'http.fetchAdditionalSupport', true),
+		isWebSocketPatchEnabled: () => getExtHostConfigValue<boolean>(configProvider, isRemote, 'http.webSocketAdditionalSupport', true),
 		addCertificatesV1: () => certSettingV1(configProvider, isRemote),
+		loadSystemCertificatesFromNode: () => getExtHostConfigValue<boolean>(configProvider, isRemote, 'http.systemCertificatesNode', systemCertificatesNodeDefault),
 		addCertificatesV2: () => certSettingV2(configProvider, isRemote),
 		log: extHostLogService,
 		getLogLevel: () => {
@@ -73,15 +75,26 @@ export function connectProxyResolver(
 		proxyResolveTelemetry: () => { },
 		isUseHostProxyEnabled,
 		loadAdditionalCertificates: async () => {
+			const useNodeSystemCerts = getExtHostConfigValue<boolean>(configProvider, isRemote, 'http.systemCertificatesNode', systemCertificatesNodeDefault);
 			const promises: Promise<string[]>[] = [];
-			if (initData.remote.isRemote) {
-				promises.push(loadSystemCertificates({ log: extHostLogService }));
+			if (isRemote) {
+				promises.push(loadSystemCertificates({
+					loadSystemCertificatesFromNode: () => useNodeSystemCerts,
+					log: extHostLogService,
+				}));
 			}
 			if (loadLocalCertificates) {
-				extHostLogService.trace('ProxyResolver#loadAdditionalCertificates: Loading certificates from main process');
-				const certs = extHostWorkspace.loadCertificates(); // Loading from main process to share cache.
-				certs.then(certs => extHostLogService.trace('ProxyResolver#loadAdditionalCertificates: Loaded certificates from main process', certs.length));
-				promises.push(certs);
+				if (!isRemote && useNodeSystemCerts) {
+					promises.push(loadSystemCertificates({
+						loadSystemCertificatesFromNode: () => useNodeSystemCerts,
+						log: extHostLogService,
+					}));
+				} else {
+					extHostLogService.trace('ProxyResolver#loadAdditionalCertificates: Loading certificates from main process');
+					const certs = extHostWorkspace.loadCertificates(); // Loading from main process to share cache.
+					certs.then(certs => extHostLogService.trace('ProxyResolver#loadAdditionalCertificates: Loaded certificates from main process', certs.length));
+					promises.push(certs);
+				}
 			}
 			// Using https.globalAgent because it is shared with proxy.test.ts and mutable.
 			if (initData.environment.extensionTestsLocationURI && (https.globalAgent as any).testCertificates?.length) {

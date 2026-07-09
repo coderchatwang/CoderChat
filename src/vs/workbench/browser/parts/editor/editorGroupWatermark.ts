@@ -17,6 +17,9 @@ import { editorForeground, registerColor, transparent } from '../../../../platfo
 import { IThemeService } from '../../../../platform/theme/common/themeService.js';
 import { isRecentFolder, IWorkspacesService } from '../../../../platform/workspaces/common/workspaces.js';
 import { IHostService } from '../../../services/host/browser/host.js';
+import { Codicon } from '../../../../base/common/codicons.js';
+import { ThemeIcon } from '../../../../base/common/themables.js';
+import { URI } from '../../../../base/common/uri.js';
 import { ILabelService, Verbosity } from '../../../../platform/label/common/label.js';
 import { ColorScheme } from '../../web.api.js';
 import { OpenFileFolderAction, OpenFolderAction } from '../../actions/workspaceActions.js';
@@ -146,6 +149,11 @@ export class EditorGroupWatermark extends Disposable {
 			this.render();
 		}));
 
+		// 监听最近打开列表的变化，当从其他地方删除时自动刷新
+		this._register(this.workspacesService.onDidChangeRecentlyOpened(() => {
+			this.render();
+		}));
+
 		// const allEntriesWhenClauses = [...noFolderEntries, ...folderEntries].filter(entry => entry.when !== undefined).map(entry => entry.when!);
 		// const allKeys = new Set<string>();
 		// allEntriesWhenClauses.forEach(when => when.keys().forEach(key => allKeys.add(key)));
@@ -230,14 +238,14 @@ export class EditorGroupWatermark extends Disposable {
 
 							let fullPath: string;
 							let windowOpenable: IWindowOpenable;
+							let uriToRemove: URI;
 							if (isRecentFolder(w)) {
 								windowOpenable = { folderUri: w.folderUri };
 								fullPath = w.label || this.labelService.getWorkspaceLabel(w.folderUri, { verbose: Verbosity.LONG });
+								uriToRemove = w.folderUri;
 							}
 							else {
 								return null
-								// fullPath = w.label || this.labelService.getWorkspaceLabel(w.workspace, { verbose: Verbosity.LONG });
-								// windowOpenable = { workspaceUri: w.workspace.configPath };
 							}
 
 
@@ -248,6 +256,7 @@ export class EditorGroupWatermark extends Disposable {
 							linkSpan.style.display = 'flex'
 							linkSpan.style.gap = '4px'
 							linkSpan.style.padding = '8px'
+							linkSpan.style.alignItems = 'center'
 
 							linkSpan.addEventListener('click', e => {
 								this.hostService.openWindow([windowOpenable], {
@@ -272,6 +281,17 @@ export class EditorGroupWatermark extends Disposable {
 							dirSpan.title = fullPath;
 
 							linkSpan.appendChild(dirSpan);
+
+							// 添加删除按钮
+							const deleteButton = $('a.remove-recent-button');
+							deleteButton.classList.add(...ThemeIcon.asClassNameArray(Codicon.removeClose));
+							deleteButton.title = localize('removeFromRecentlyOpened', "Remove from Recently Opened");
+							deleteButton.addEventListener('click', async (e) => {
+								e.preventDefault();
+								e.stopPropagation();
+								await this.workspacesService.removeRecentlyOpened([uriToRemove]);
+							});
+							linkSpan.appendChild(deleteButton);
 
 							return linkSpan
 						})

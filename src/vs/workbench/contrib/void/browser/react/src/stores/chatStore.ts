@@ -16,6 +16,7 @@ export interface ThreadMetadata {
 	lastModified: string
 	title?: string
 	messageCount: number
+	projectId?: string // 项目唯一标识（项目路径），可选以兼容旧数据
 }
 
 export type IsRunningType =
@@ -59,6 +60,10 @@ export interface ThreadState {
 		_whenMountedResolver: (res: any) => void
 		mountedIsResolvedRef: { current: boolean }
 	}
+	// Diff editor view mode (not persisted)
+	showRightOnly?: boolean
+	// Chat mode (not persisted, per-thread memory only)
+	chatMode: any // ChatMode type from voidSettingsTypes
 }
 
 export interface ChatStore {
@@ -137,6 +142,7 @@ const defaultThreadState = (): ThreadState => ({
 	stagingImages: [],
 	focusedMessageIdx: undefined,
 	linksOfMessageIdx: {},
+	chatMode: 'agent', // 默认为智能体模式
 })
 
 // ============ Store Creation ============

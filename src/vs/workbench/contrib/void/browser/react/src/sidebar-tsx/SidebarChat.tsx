@@ -6,13 +6,17 @@
 import React, { ButtonHTMLAttributes, FormEvent, FormHTMLAttributes, Fragment, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 
-import { useAccessor, useChatThreadsState, useChatThreadsStreamState, useSettingsState, useActiveURI, useCommandBarState, useFullChatThreadsStreamState, useCurrentThreadId, useCurrentThreadMessages, useCurrentThreadStreamState, useThreadState } from '../util/services.js';
+import { useAccessor, useChatThreadsState, useChatThreadsStreamState, useSettingsState, useActiveURI, useCommandBarState, useFullChatThreadsStreamState, useCurrentThreadId, useCurrentThreadMessages, useCurrentThreadStreamState, useThreadState, useChatStore, useCurrentThreadState } from '../util/services.js';
+import { useMenuItems, MenuItem } from './useMenuItems.js'
 import { useVoidChatI18n } from '../util/i18n.js';
+
+import { useFloating, autoUpdate, offset, flip, shift, size } from '@floating-ui/react';
 import { ScrollType } from '../../../../../../../editor/common/editorCommon.js';
 
 import { ChatMarkdownRender, ChatMessageLocation, getApplyBoxId, prefetchTokensBatch } from '../markdown/ChatMarkdownRender.js';
 import { URI } from '../../../../../../../base/common/uri.js';
 import { IDisposable } from '../../../../../../../base/common/lifecycle.js';
+import { VSBuffer } from '../../../../../../../base/common/buffer.js';
 import { ErrorDisplay } from './ErrorDisplay.js';
 import { BlockCode, TextAreaFns, VoidCustomDropdownBox, VoidInputBox2, VoidSlider, VoidSwitch, VoidDiffEditor } from '../util/inputs.js';
 import { ModelDropdown, } from '../void-settings-tsx/ModelDropdown.js';
@@ -23,7 +27,8 @@ import { ChatMode, displayInfoOfProviderName, FeatureName, isFeatureNameDisabled
 import { ICommandService } from '../../../../../../../platform/commands/common/commands.js';
 import { WarningBox } from '../void-settings-tsx/WarningBox.js';
 import { getModelCapabilities, getIsReasoningEnabledState } from '../../../../common/modelCapabilities.js';
-import { AlertTriangle, File, Ban, Check, ChevronRight, Dot, FileIcon, Pencil, Undo, Undo2, X, Flag, Copy as CopyIcon, Info, CirclePlus, Ellipsis, CircleEllipsis, Folder, ALargeSmall, TypeOutline, Text } from 'lucide-react';
+import { AlertTriangle, File, Ban, Check, ChevronRight, Dot, FileIcon, Pencil, Undo, Undo2, X, Flag, Copy as CopyIcon, Info, CirclePlus, Ellipsis, CircleEllipsis, Folder, ALargeSmall, TypeOutline, Text, Clock, Menu } from 'lucide-react';
+import { createNotificationHelper } from '../../../../common/helpers/notificationHelper.js';
 import { ChatMessage, CheckpointEntry, ImageAttachment, StagingSelectionItem, ToolMessage } from '../../../../common/chatThreadServiceTypes.js';
 import { approvalTypeOfBuiltinToolName, BuiltinToolCallParams, BuiltinToolName, BuiltinToolResultType, ToolName, LintErrorItem, ToolApprovalType, toolApprovalTypes, TodoItem } from '../../../../common/toolsServiceTypes.js';
 import { CopyButton, EditToolAcceptRejectButtonsHTML, IconShell1, JumpToFileButton, JumpToTerminalButton, StatusIndicator, StatusIndicatorForApplyButton, useApplyStreamState, useEditToolStreamState } from '../markdown/ApplyBlockHoverButtons.js';
@@ -32,19 +37,60 @@ import { acceptAllBg, acceptBorder, buttonFontSize, buttonTextColor, rejectAllBg
 import { builtinToolNames, isABuiltinToolName, MAX_FILE_CHARS_PAGE, MAX_TERMINAL_INACTIVE_TIME } from '../../../../common/prompt/prompts.js';
 import { RawToolCallObj } from '../../../../common/sendLLMMessageTypes.js';
 import ErrorBoundary from './ErrorBoundary.js';
+
 import { ToolApprovalTypeSwitch } from '../void-settings-tsx/Settings.js';
 
 import { persistentTerminalNameOfId } from '../../../terminalToolService.js';
 import { removeMCPToolNamePrefix } from '../../../../common/mcpServiceTypes.js';
 
+// 文件修改工具名称列表
+const FILE_MODIFICATION_TOOL_NAMES = ['edit_file', 'create_file_or_folder', 'delete_file_or_folder', 'rewrite_file'] as const
 
 // Constants for truncating display content
-const TITLE_MAX_LENGTH = 20
+const TITLE_MAX_LENGTH = 50
 
 // Helper function to truncate text for display
 const truncateForDisplay = (text: string, maxLength: number = TITLE_MAX_LENGTH): string => {
 	if (text.length <= maxLength) return text
 	return text.substring(0, maxLength) + '...'
+}
+
+// Helper function to get display title from first user message
+// Returns truncated text if there's text content, or "Image message" if only images
+const getDisplayTitleFromUserMessage = (
+	message: { role: 'user'; displayContent: string; images: ImageAttachment[] | null } | ChatMessage,
+	t: ReturnType<typeof useVoidChatI18n>
+): string => {
+	if (message.role !== 'user') {
+		return t.chatTitle()
+	}
+
+	// Check if message has text content
+	const hasText = message.displayContent && message.displayContent.trim().length > 0
+
+	// Check if message has images
+	const hasImages = message.images && message.images.length > 0
+
+	if (!hasText && hasImages) {
+		// Only images, no text
+		return t.imageMessage()
+	} else if (hasText) {
+		// Has text content (possibly with images too)
+		return truncateForDisplay(message.displayContent)
+	} else {
+		// No text and no images
+		return t.chatTitle()
+	}
+}
+
+// Helper function to format message creation time
+const formatMessageTime = (timestamp: number | null): string | null => {
+	if (!timestamp) return null
+	const date = new Date(timestamp)
+	const hours = date.getHours().toString().padStart(2, '0')
+	const minutes = date.getMinutes().toString().padStart(2, '0')
+	const seconds = date.getSeconds().toString().padStart(2, '0')
+	return `${hours}:${minutes}:${seconds}`
 }
 
 
@@ -81,7 +127,7 @@ const IconArrowUp = ({ size, className = '' }: { size: number, className?: strin
 			xmlns="http://www.w3.org/2000/svg"
 		>
 			<path
-				fill="black"
+				fill="currentColor"
 				fillRule="evenodd"
 				clipRule="evenodd"
 				d="M5.293 9.707a1 1 0 010-1.414l4-4a1 1 0 011.414 0l4 4a1 1 0 01-1.414 1.414L11 7.414V15a1 1 0 11-2 0V7.414L6.707 9.707a1 1 0 01-1.414 0z"
@@ -95,8 +141,8 @@ const IconSquare = ({ size, className = '' }: { size: number, className?: string
 	return (
 		<svg
 			className={className}
-			stroke="black"
-			fill="black"
+			stroke="currentColor"
+			fill="currentColor"
 			strokeWidth="0"
 			viewBox="0 0 24 24"
 			width={size}
@@ -275,21 +321,25 @@ const ChatModeDropdown = ({ className }: { className: string }) => {
 	const accessor = useAccessor()
 	const t = useVoidChatI18n()
 
-	const voidSettingsService = accessor.get('IVoidSettingsService')
-	const settingsState = useSettingsState()
+	const chatThreadService = accessor.get('IChatThreadService')
+	const currentThreadState = useCurrentThreadState()
 
 	const options: ChatMode[] = useMemo(() => ['normal', 'gather', 'agent'], [])
 	const nameOfChatMode = useMemo(() => getNameOfChatMode(t), [t])
 	const detailOfChatMode = useMemo(() => getDetailOfChatMode(t), [t])
 
+	// 从当前线程状态获取 chatMode，默认为 'agent'
+	const currentChatMode = currentThreadState?.chatMode ?? 'agent'
+
 	const onChangeOption = useCallback((newVal: ChatMode) => {
-		voidSettingsService.setGlobalSetting('chatMode', newVal)
-	}, [voidSettingsService])
+		// 设置当前线程的 chatMode（持久化存储）
+		chatThreadService.setCurrentThreadChatMode(newVal)
+	}, [chatThreadService])
 
 	return <VoidCustomDropdownBox
 		className={className}
 		options={options}
-		selectedOption={settingsState.globalSettings.chatMode}
+		selectedOption={currentChatMode}
 		onChangeOption={onChangeOption}
 		getOptionDisplayName={(val) => nameOfChatMode[val]}
 		getOptionDropdownName={(val) => nameOfChatMode[val]}
@@ -299,8 +349,502 @@ const ChatModeDropdown = ({ className }: { className: string }) => {
 
 }
 
+// 输入历史项类型
+interface InputHistoryItem {
+	messageIdx: number
+	displayContent: string
+	userReplyNumber: number
+	createdAt: number | null
+}
+
+// 格式化时间显示
+const formatHistoryTime = (timestamp: number | null): string => {
+	if (!timestamp) return ''
+	const date = new Date(timestamp)
+	const now = new Date()
+	const isToday = date.toDateString() === now.toDateString()
+	const yesterday = new Date(now)
+	yesterday.setDate(yesterday.getDate() - 1)
+	const isYesterday = date.toDateString() === yesterday.toDateString()
+
+	const timeStr = date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+	if (isToday) {
+		return timeStr
+	} else if (isYesterday) {
+		return `昨天 ${timeStr}`
+	} else {
+		return `${date.getMonth() + 1}/${date.getDate()} ${timeStr}`
+	}
+}
+
+// 输入历史下拉组件 - 使用与 VoidCustomDropdownBox 相同的浮动定位风格
+const InputHistoryDropdown = ({
+	className,
+	inputHistory,
+	onJumpToMessage,
+	onScrollToBottom,
+}: {
+	className: string
+	inputHistory: InputHistoryItem[]
+	onJumpToMessage: (messageIdx: number) => void
+	onScrollToBottom: () => void
+}) => {
+	const t = useVoidChatI18n()
+	const [isOpen, setIsOpen] = useState(false)
+	const measureRef = useRef<HTMLDivElement>(null)
+	const dropdownContentRef = useRef<HTMLDivElement>(null)
+
+	const {
+		x,
+		y,
+		strategy,
+		refs,
+	} = useFloating({
+		open: isOpen,
+		onOpenChange: setIsOpen,
+		placement: 'bottom-start',
+		middleware: [
+			offset({ mainAxis: 0, crossAxis: -6 }),
+			flip({ boundary: document.body, padding: 8 }),
+			shift({ boundary: document.body, padding: 8 }),
+			size({
+				apply({ availableHeight, elements, rects }) {
+					const maxHeight = Math.min(availableHeight)
+
+					Object.assign(elements.floating.style, {
+						maxHeight: `${maxHeight}px`,
+						overflowY: 'auto',
+						width: `${Math.max(
+							rects.reference.width,
+							measureRef.current?.offsetWidth ?? 0
+						)}px`
+					})
+				},
+				padding: 8,
+				boundary: document.body,
+			}),
+		],
+		whileElementsMounted: autoUpdate,
+		strategy: 'fixed',
+	})
+
+	// Handle clicks outside
+	useEffect(() => {
+		if (!isOpen) return
+
+		const handleClickOutside = (event: MouseEvent) => {
+			const target = event.target as Node
+			const floating = refs.floating.current
+			const reference = refs.reference.current
+
+			const isReferenceHTMLElement = reference && 'contains' in reference
+
+			if (
+				floating &&
+				(!isReferenceHTMLElement || !reference.contains(target)) &&
+				!floating.contains(target)
+			) {
+				setIsOpen(false)
+			}
+		}
+
+		document.addEventListener('mousedown', handleClickOutside)
+		return () => document.removeEventListener('mousedown', handleClickOutside)
+	}, [isOpen, refs.floating, refs.reference])
+
+	// 打开下拉菜单时自动滚动到底部
+	useEffect(() => {
+		if (isOpen && dropdownContentRef.current) {
+			// 使用 requestAnimationFrame 确保 DOM 渲染完成后再滚动
+			requestAnimationFrame(() => {
+				if (dropdownContentRef.current) {
+					dropdownContentRef.current.scrollTop = dropdownContentRef.current.scrollHeight
+				}
+			})
+		}
+	}, [isOpen])
+
+	return (
+		<div className={`inline-block relative ${className}`}>
+			{/* Hidden measurement div */}
+			<div
+				ref={measureRef}
+				className="opacity-0 pointer-events-none absolute -left-[999999px] -top-[999999px] flex flex-col"
+				aria-hidden="true"
+			>
+				{inputHistory.map((item) => {
+					const timeStr = formatHistoryTime(item.createdAt)
+					return (
+						<div key={item.messageIdx} className="flex items-center whitespace-nowrap">
+							<div className="w-4" />
+							<span className="flex justify-between items-center w-full gap-x-1">
+								<span>{item.userReplyNumber}</span>
+								<span className="truncate max-w-[200px]">{item.displayContent}</span>
+								<span className='opacity-60'>{timeStr}</span>
+								<span>______</span>
+							</span>
+						</div>
+					)
+				})}
+				{/* 测量"滚动到底部"项 */}
+				<div className="flex items-center whitespace-nowrap">
+					<div className="w-4" />
+					<span className="flex justify-between items-center w-full gap-x-1">
+						<span className="truncate max-w-[200px]">{t.scrollToBottom()}</span>
+					</span>
+				</div>
+			</div>
+
+			{/* Clock Icon Button */}
+			<button
+				type='button'
+				ref={refs.setReference}
+				className="flex items-center justify-center p-1 rounded bg-transparent hover:bg-void-bg-2 transition-colors cursor-pointer"
+				onClick={() => setIsOpen(!isOpen)}
+				title={t.inputHistoryTitle()}
+			>
+				<Clock size={18} className="text-void-fg-3 hover:text-void-fg-1" />
+			</button>
+
+			{/* Dropdown Menu */}
+			{isOpen && (
+				<div
+					ref={refs.setFloating}
+					className="bg-void-bg-1 border-void-border-3 border rounded shadow-lg"
+					data-void-dropdown-open="true"
+					style={{
+						position: strategy,
+						top: y ?? 0,
+						left: x ?? 0,
+						zIndex: 100,
+						width: Math.max(
+							(refs.reference.current instanceof HTMLElement ? refs.reference.current.offsetWidth : 0),
+							(measureRef.current instanceof HTMLElement ? measureRef.current.offsetWidth : 0)
+						)
+					}}
+					onWheel={(e) => e.stopPropagation()}
+				>
+					<div ref={dropdownContentRef} className='overflow-auto max-h-80'>
+						{inputHistory.map((item) => {
+							const timeStr = formatHistoryTime(item.createdAt)
+							return (
+								<div
+									key={item.messageIdx}
+									className={`flex items-center px-2 py-1 pr-4 cursor-pointer whitespace-nowrap
+									transition-all duration-100
+									hover:bg-blue-500 hover:text-white/80
+								`}
+									onClick={() => {
+										onJumpToMessage(item.messageIdx)
+										setIsOpen(false)
+									}}
+								>
+									<div className="w-4 flex justify-center flex-shrink-0">
+										<span className="text-xs">{item.userReplyNumber}</span>
+									</div>
+									<span className="flex justify-between items-center w-full gap-x-1">
+										<span className="truncate max-w-[200px]">{item.displayContent}</span>
+										<span className='opacity-60 text-xs shrink-0'>{timeStr}</span>
+									</span>
+								</div>
+							)
+						})}
+						{/* 滚动到底部项 */}
+						<div
+							className={`flex items-center px-2 py-1 pr-4 cursor-pointer whitespace-nowrap
+								transition-all duration-100
+								hover:bg-blue-500 hover:text-white/80
+								border-t border-void-border-2
+							`}
+							onClick={() => {
+								onScrollToBottom()
+								setIsOpen(false)
+							}}
+						>
+							<div className="w-4 flex justify-center flex-shrink-0">
+								<IconArrowUp size={12} className="text-xs rotate-180" />
+							</div>
+							<span className="flex justify-between items-center w-full gap-x-1">
+								<span className="truncate max-w-[200px]">{t.scrollToBottom()}</span>
+							</span>
+						</div>
+					</div>
+				</div>
+			)}
+		</div>
+	)
+}
 
 
+// 菜单项类型定义
+// 二级菜单子组件
+const SubMenu = ({
+	item,
+	onClose,
+}: {
+	item: MenuItem
+	onClose: () => void
+}) => {
+	const [isOpen, setIsOpen] = useState(false)
+	const submenuRef = useRef<HTMLDivElement>(null)
+	const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+	const {
+		x,
+		y,
+		strategy,
+		refs,
+	} = useFloating({
+		open: isOpen,
+		placement: 'right-start',
+		middleware: [
+			offset({ mainAxis: 0, crossAxis: -4 }),
+			flip({ boundary: document.body, padding: 8 }),
+			shift({ boundary: document.body, padding: 8 }),
+		],
+		whileElementsMounted: autoUpdate,
+		strategy: 'fixed',
+	})
+
+	const handleMouseEnter = useCallback(() => {
+		if (timeoutRef.current) {
+			clearTimeout(timeoutRef.current)
+		}
+		setIsOpen(true)
+	}, [])
+
+	const handleMouseLeave = useCallback(() => {
+		timeoutRef.current = setTimeout(() => {
+			setIsOpen(false)
+		}, 100)
+	}, [])
+
+	// 清理定时器
+	useEffect(() => {
+		return () => {
+			if (timeoutRef.current) {
+				clearTimeout(timeoutRef.current)
+			}
+		}
+	}, [])
+
+	if (!item.children || item.children.length === 0) {
+		return null
+	}
+
+	return (
+		<div
+			ref={submenuRef}
+			className="relative"
+			onMouseEnter={handleMouseEnter}
+			onMouseLeave={handleMouseLeave}
+		>
+			{/* 一级菜单项（有子菜单） */}
+			<div
+				ref={refs.setReference}
+				className={`flex items-center justify-between py-1 pl-6 pr-3 cursor-pointer whitespace-nowrap
+					transition-all duration-100
+					${isOpen ? 'bg-blue-500 text-white/80' : 'hover:bg-blue-500 hover:text-white/80'}
+				`}
+			>
+				<span>{item.label}</span>
+				<ChevronRight size={14} className="ml-2" />
+			</div>
+
+			{/* 二级菜单 */}
+			{isOpen && (
+				<div
+					ref={refs.setFloating}
+					className="bg-void-bg-1 border-void-border-3 border rounded shadow-lg"
+					style={{
+						position: strategy,
+						top: y ?? 0,
+						left: x ?? 0,
+						zIndex: 110,
+						minWidth: 120,
+					}}
+					onMouseEnter={handleMouseEnter}
+					onMouseLeave={handleMouseLeave}
+				>
+					<div className='overflow-auto max-h-80'>
+						{item.children.map((child) => (
+							<div
+								key={child.key}
+								className={`flex items-center py-1 pl-4 pr-4 cursor-pointer whitespace-nowrap
+									transition-all duration-100
+									hover:bg-blue-500 hover:text-white/80
+								`}
+								title={child.title}
+								onClick={() => {
+									child.onClick?.()
+									onClose()
+								}}
+							>
+								<span>{child.label}</span>
+							</div>
+						))}
+					</div>
+				</div>
+			)}
+		</div>
+	)
+}
+
+// 菜单下拉组件 - 支持二级联动菜单
+const MenuDropdown = ({
+	className,
+	menuItems,
+}: {
+	className: string
+	menuItems: MenuItem[]
+}) => {
+	const t = useVoidChatI18n()
+	const [isOpen, setIsOpen] = useState(false)
+	const measureRef = useRef<HTMLDivElement>(null)
+
+	const {
+		x,
+		y,
+		strategy,
+		refs,
+	} = useFloating({
+		open: isOpen,
+		onOpenChange: setIsOpen,
+		placement: 'bottom-start',
+		middleware: [
+			offset({ mainAxis: 0, crossAxis: -6 }),
+			flip({ boundary: document.body, padding: 8 }),
+			shift({ boundary: document.body, padding: 8 }),
+			size({
+				apply({ availableHeight, elements, rects }) {
+					const maxHeight = Math.min(availableHeight)
+
+					Object.assign(elements.floating.style, {
+						maxHeight: `${maxHeight}px`,
+						overflowY: 'auto',
+						width: `${Math.max(
+							rects.reference.width,
+							measureRef.current?.offsetWidth ?? 0
+						)}px`
+					})
+				},
+				padding: 8,
+				boundary: document.body,
+			}),
+		],
+		whileElementsMounted: autoUpdate,
+		strategy: 'fixed',
+	})
+
+	// Handle clicks outside
+	useEffect(() => {
+		if (!isOpen) return
+
+		const handleClickOutside = (event: MouseEvent) => {
+			const target = event.target as Node
+			const floating = refs.floating.current
+			const reference = refs.reference.current
+
+			const isReferenceHTMLElement = reference && 'contains' in reference
+
+			if (
+				floating &&
+				(!isReferenceHTMLElement || !reference.contains(target)) &&
+				!floating.contains(target)
+			) {
+				setIsOpen(false)
+			}
+		}
+
+		document.addEventListener('mousedown', handleClickOutside)
+		return () => document.removeEventListener('mousedown', handleClickOutside)
+	}, [isOpen, refs.floating, refs.reference])
+
+	const handleClose = useCallback(() => {
+		setIsOpen(false)
+	}, [])
+
+	return (
+		<div className={`inline-block relative ${className}`}>
+			{/* Hidden measurement div */}
+			<div
+				ref={measureRef}
+				className="opacity-0 pointer-events-none absolute -left-[999999px] -top-[999999px] flex flex-col"
+				aria-hidden="true"
+			>
+				{menuItems.map((item) => (
+					<div key={item.key} className="flex items-center whitespace-nowrap py-1 pl-6 pr-6">
+						<span>{item.label}</span>
+						{item.children && item.children.length > 0 && <span className="ml-2">{'>'}</span>}
+					</div>
+				))}
+			</div>
+
+			{/* Menu Icon Button */}
+			<button
+				type='button'
+				ref={refs.setReference}
+				className="flex items-center justify-center p-1 rounded bg-transparent hover:bg-void-bg-2 transition-colors cursor-pointer"
+				onClick={() => setIsOpen(!isOpen)}
+				title={t.menuTitle()}
+			>
+				<Menu size={18} className="text-void-fg-3 hover:text-void-fg-1" />
+			</button>
+
+			{/* Dropdown Menu */}
+			{isOpen && (
+				<div
+					ref={refs.setFloating}
+					className="bg-void-bg-1 border-void-border-3 border rounded shadow-lg"
+					data-void-dropdown-open="true"
+					style={{
+						position: strategy,
+						top: y ?? 0,
+						left: x ?? 0,
+						zIndex: 100,
+						minWidth: Math.max(
+							(refs.reference.current instanceof HTMLElement ? refs.reference.current.offsetWidth : 0),
+							(measureRef.current instanceof HTMLElement ? measureRef.current.offsetWidth : 0)
+						)
+					}}
+					onWheel={(e) => e.stopPropagation()}
+				>
+					<div className='overflow-auto max-h-80'>
+						{menuItems.map((item) => {
+							// 如果有子菜单，使用 SubMenu 组件
+							if (item.children && item.children.length > 0) {
+								return (
+									<SubMenu
+										key={item.key}
+										item={item}
+										onClose={handleClose}
+									/>
+								)
+							}
+
+							// 没有子菜单，直接渲染
+							return (
+								<div
+									key={item.key}
+									className={`flex items-center py-1 pl-6 pr-6 cursor-pointer whitespace-nowrap
+										transition-all duration-100
+										hover:bg-blue-500 hover:text-white/80
+									`}
+									onClick={() => {
+										item.onClick?.()
+										setIsOpen(false)
+									}}
+								>
+									<span>{item.label}</span>
+								</div>
+							)
+						})}
+					</div>
+				</div>
+			)}
+		</div>
+	)
+}
 
 
 // Helper function to convert file to base64
@@ -352,6 +896,14 @@ interface VoidChatAreaProps {
 	onClose?: () => void;
 
 	featureName: FeatureName;
+
+	// 输入历史
+	inputHistory?: InputHistoryItem[]
+	onJumpToMessage?: (messageIdx: number) => void
+	onScrollToBottom?: () => void
+
+	// 菜单项
+	menuItems?: { key: string, label: string, onClick?: () => void }[]
 }
 
 // Image upload button component
@@ -533,6 +1085,10 @@ export const VoidChatArea: React.FC<VoidChatAreaProps> = ({
 	supportsVision = false,
 	featureName,
 	loadingIcon,
+	inputHistory,
+	onJumpToMessage,
+	onScrollToBottom,
+	menuItems,
 }) => {
 	const t = useVoidChatI18n()
 	const [isDragging, setIsDragging] = useState(false)
@@ -729,11 +1285,29 @@ export const VoidChatArea: React.FC<VoidChatAreaProps> = ({
 				)}
 
 				<div className="flex items-center gap-2">
+					{/* 输入历史按钮 - 只在有历史记录时显示 */}
+					{inputHistory && inputHistory.length > 0 && onJumpToMessage && onScrollToBottom && (
+						<InputHistoryDropdown
+							className='text-xs text-void-fg-3 bg-void-bg-1 rounded'
+							inputHistory={inputHistory}
+							onJumpToMessage={onJumpToMessage}
+							onScrollToBottom={onScrollToBottom}
+						/>
+					)}
+
 					{/* Image upload button - only show if model supports vision */}
 					{setImages && supportsVision && (
 						<ImageUploadButton
 							onImageSelect={handleImageSelect}
 							disabled={isStreaming}
+						/>
+					)}
+
+					{/* 菜单按钮 */}
+					{menuItems && menuItems.length > 0 && (
+						<MenuDropdown
+							className='text-xs text-void-fg-3 bg-void-bg-1 rounded'
+							menuItems={menuItems}
 						/>
 					)}
 
@@ -763,8 +1337,9 @@ export const ButtonSubmit = ({ className, disabled, ...props }: ButtonProps & Re
 
 	return <button
 		type='button'
-		className={`rounded-full flex-shrink-0 flex-grow-0 flex items-center justify-center
-			${disabled ? 'bg-vscode-disabled-fg cursor-default' : 'bg-white cursor-pointer'}
+		className={`rounded-md flex-shrink-0 flex-grow-0 flex items-center justify-center
+			${disabled ? 'bg-vscode-disabled-fg cursor-default' : 'bg-vscode-button-bg cursor-pointer'}
+			text-vscode-button-fg
 			${className}
 		`}
 		// data-tooltip-id='void-tooltip'
@@ -778,8 +1353,9 @@ export const ButtonSubmit = ({ className, disabled, ...props }: ButtonProps & Re
 
 export const ButtonStop = ({ className, ...props }: ButtonHTMLAttributes<HTMLButtonElement>) => {
 	return <button
-		className={`rounded-full flex-shrink-0 flex-grow-0 cursor-pointer flex items-center justify-center
-			bg-white
+		className={`rounded-md flex-shrink-0 flex-grow-0 cursor-pointer flex items-center justify-center
+			bg-vscode-button-bg
+			text-vscode-button-fg
 			${className}
 		`}
 		type='button'
@@ -799,38 +1375,166 @@ const scrollToBottom = (divRef: { current: HTMLElement | null }) => {
 
 
 
-const ScrollToBottomContainer = ({ children, className, style, scrollContainerRef, onScroll: onScrollProp }: { children: React.ReactNode, className?: string, style?: React.CSSProperties, scrollContainerRef: React.MutableRefObject<HTMLDivElement | null>, onScroll?: (e: React.UIEvent<HTMLDivElement>) => void }) => {
-	const [isAtBottom, setIsAtBottom] = useState(true); // Start at bottom
-
+const ScrollToBottomContainer = ({ children, className, style, scrollContainerRef, onScroll: onScrollProp, scrollAnchorForLoadMore, disableAutoScrollRef, setIsAtBottomRef }: { children: React.ReactNode, className?: string, style?: React.CSSProperties, scrollContainerRef: React.MutableRefObject<HTMLDivElement | null>, onScroll?: (e: React.UIEvent<HTMLDivElement>) => void, scrollAnchorForLoadMore?: React.MutableRefObject<{ scrollTop: number, scrollHeight: number } | null>, disableAutoScrollRef?: React.MutableRefObject<boolean>, setIsAtBottomRef?: React.MutableRefObject<(value: boolean, shouldScroll?: boolean) => void> }) => {
 	const divRef = scrollContainerRef
 
-	const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
-		const div = divRef.current;
-		if (!div) return;
+	// 内部 ref，如果外部没有提供则使用内部的
+	const internalScrollAnchorRef = useRef<{ scrollTop: number, scrollHeight: number } | null>(null)
+	const scrollAnchorRef = scrollAnchorForLoadMore || internalScrollAnchorRef
 
-		const isBottom = Math.abs(
-			div.scrollHeight - div.clientHeight - div.scrollTop
-		) < 4;
+	// 用于跟踪是否应该自动滚动到底部（使用 Intersection Observer 检测）
+	const shouldAutoScrollRef = useRef(true)
+	// 底部 sentinel 元素的 ref
+	const sentinelRef = useRef<HTMLDivElement | null>(null)
 
-		setIsAtBottom(isBottom);
-
-		// 调用外部传入的 onScroll 处理函数
-		if (onScrollProp) {
-			onScrollProp(e);
+	// 同步检查 sentinel 是否在视口内（用于 children useEffect 中的即时判断）
+	const checkIsAtBottom = useCallback(() => {
+		const sentinel = sentinelRef.current
+		const container = divRef.current
+		if (!sentinel || !container) {
+			return true // 默认在底部
 		}
-	}, [onScrollProp, divRef]);
+
+		const containerRect = container.getBoundingClientRect()
+		const sentinelRect = sentinel.getBoundingClientRect()
+
+		// sentinel 的顶部在容器的底部之上（允许 4px 误差）= 可见 = 在底部
+		const result = sentinelRect.top <= containerRect.bottom + 4
+		return result
+	}, [divRef])
+
+	// 使用 Intersection Observer 检测是否在底部（异步更新 ref）
+	useEffect(() => {
+		const sentinel = sentinelRef.current
+		const container = divRef.current
+		if (!sentinel || !container) return
+
+		const observer = new IntersectionObserver(
+			(entries) => {
+				const entry = entries[0]
+				if (entry) {
+					// sentinel 可见 = 在底部
+					shouldAutoScrollRef.current = entry.isIntersecting
+				}
+			},
+			{
+				root: container,
+				threshold: 0,
+				// 添加一点 margin，使检测更精确
+				rootMargin: '0px 0px -4px 0px',
+			}
+		)
+
+		observer.observe(sentinel)
+
+		return () => {
+			observer.disconnect()
+		}
+	}, [])
+
+	// 辅助函数：滚动到底部
+	const scrollToBottomFn = useCallback(() => {
+		const div = divRef.current
+		if (!div) return
+
+		div.scrollTop = div.scrollHeight
+	}, [divRef])
+
+	// 辅助函数：使用多次 requestAnimationFrame 确保 DOM 完全渲染后滚动
+	const scrollToBottomWithRetry = useCallback((maxRetries = 3) => {
+
+		let retryCount = 0
+		let lastScrollHeight = 0
+
+		const attemptScroll = () => {
+			const div = divRef.current
+			if (!div) {
+				return
+			}
+
+			// 检查 scrollHeight 是否稳定（DOM 是否完成渲染）
+			const currentScrollHeight = div.scrollHeight
+
+			if (currentScrollHeight !== lastScrollHeight) {
+				lastScrollHeight = currentScrollHeight
+				scrollToBottomFn()
+				retryCount = 0 // 重置计数器，因为 DOM 还在变化
+			}
+
+			retryCount++
+
+			if (retryCount < maxRetries) {
+				requestAnimationFrame(attemptScroll)
+			} else {
+				// 最后一次确保滚动到底部
+				scrollToBottomFn()
+			}
+		}
+
+		requestAnimationFrame(attemptScroll)
+	}, [divRef, scrollToBottomFn])
+
+	// 暴露设置自动滚动状态的方法给外部使用
+	useEffect(() => {
+		if (setIsAtBottomRef) {
+			setIsAtBottomRef.current = (value: boolean, shouldScroll?: boolean) => {
+				// 先设置状态
+				shouldAutoScrollRef.current = value
+				// 如果需要滚动且状态为 true，则执行滚动
+				if (value && shouldScroll) {
+					scrollToBottomWithRetry()
+				}
+			}
+		}
+	}, [setIsAtBottomRef, scrollToBottomWithRetry])
+
+	// 处理滚动事件（仅用于外部回调，如加载更多）
+	const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+		if (onScrollProp) {
+			onScrollProp(e)
+		}
+	}, [onScrollProp])
 
 	// When children change (new messages added)
 	useEffect(() => {
-		if (isAtBottom) {
-			scrollToBottom(divRef);
+
+		// 如果禁用自动滚动（例如正在跳转到历史消息）
+		if (disableAutoScrollRef?.current) {
+			// 重要：清除 scrollAnchor，防止之后 enableAutoScroll 时被错误使用
+			scrollAnchorRef.current = null
+			return
 		}
-	}, [children, isAtBottom, divRef]); // Dependency on children to detect new messages
+
+		// 如果需要保持滚动位置（加载更多历史消息时）
+		if (scrollAnchorRef.current) {
+			const div = divRef.current
+			if (div) {
+				const { scrollTop, scrollHeight } = scrollAnchorRef.current
+				// 计算新增内容的高度
+				const heightDiff = div.scrollHeight - scrollHeight
+				// 保持相对位置：新的 scrollTop = 旧的 scrollTop + 新增高度
+				const newScrollTop = scrollTop + heightDiff
+				requestAnimationFrame(() => {
+					if (divRef.current) {
+						divRef.current.scrollTop = newScrollTop
+					}
+				})
+				scrollAnchorRef.current = null
+			}
+			return
+		}
+
+		// 使用同步检查判断是否应该自动滚动（避免 Intersection Observer 回调延迟）
+		const isAtBottom = checkIsAtBottom()
+		if (isAtBottom || shouldAutoScrollRef.current) {
+			scrollToBottomWithRetry()
+		}
+	}, [children, divRef, scrollAnchorRef, disableAutoScrollRef, scrollToBottomWithRetry, checkIsAtBottom])
 
 	// Initial scroll to bottom
 	useEffect(() => {
-		scrollToBottom(divRef);
-	}, [divRef]);
+		scrollToBottomWithRetry()
+	}, [divRef, scrollToBottomWithRetry])
 
 	return (
 		<div
@@ -840,9 +1544,19 @@ const ScrollToBottomContainer = ({ children, className, style, scrollContainerRe
 			style={style}
 		>
 			{children}
+			{/* 底部 sentinel 元素，用于 Intersection Observer 检测 */}
+			<div
+				ref={sentinelRef}
+				style={{
+					height: 1,
+					width: '100%',
+					// 不影响布局
+					flexShrink: 0,
+				}}
+			/>
 		</div>
-	);
-};
+	)
+}
 
 export const getRelative = (uri: URI, accessor: ReturnType<typeof useAccessor>) => {
 	const workspaceContextService = accessor.get('IWorkspaceContextService')
@@ -1258,6 +1972,11 @@ const EditTool = ({ toolMessage, threadId, messageIdx, content }: Parameters<Res
 	const isError = false
 	const isRejected = toolMessage.type === 'rejected'
 
+	// Global state for showing only right side in diff editor (per-thread, not persisted)
+	const threadState = useThreadState(threadId)
+	const showRightOnly = threadState?.showRightOnly ?? false
+	const setThreadState = useChatStore(s => s.setThreadState)
+
 	const title = getTitle(toolMessage, t)
 
 	const { desc1, desc1Info } = toolNameToDesc(toolMessage.name, toolMessage.params, accessor)
@@ -1275,6 +1994,7 @@ const EditTool = ({ toolMessage, threadId, messageIdx, content }: Parameters<Res
 				uri={params.uri}
 				code={content}
 				type={editToolType}
+				showRightOnly={showRightOnly}
 			/>
 		</ToolChildrenWrapper>
 		// JumpToFileButton removed in favor of FileLinkText
@@ -1292,6 +2012,8 @@ const EditTool = ({ toolMessage, threadId, messageIdx, content }: Parameters<Res
 			codeStr={content}
 			toolName={name}
 			threadId={threadId}
+			showRightOnly={showRightOnly}
+			onToggleShowRightOnly={() => setThreadState(threadId, { showRightOnly: !showRightOnly })}
 		/>
 
 		// add children
@@ -1300,6 +2022,7 @@ const EditTool = ({ toolMessage, threadId, messageIdx, content }: Parameters<Res
 				uri={params.uri}
 				code={content}
 				type={editToolType}
+				showRightOnly={showRightOnly}
 			/>
 		</ToolChildrenWrapper>
 
@@ -1404,9 +2127,15 @@ const UserMessageComponent = ({ chatMessage, messageIdx, isCheckpointGhost, curr
 	const mode: ChatBubbleMode = isBeingEdited ? 'edit' : 'display'
 	const [isFocused, setIsFocused] = useState(false)
 	const [isHovered, setIsHovered] = useState(false)
-	const [isDisabled, setIsDisabled] = useState(false)
+	const [textContent, setTextContent] = useState('')
 	const [textAreaRefState, setTextAreaRef] = useState<HTMLTextAreaElement | null>(null)
 	const textAreaFnsRef = useRef<TextAreaFns | null>(null)
+	// 计算是否有内容：文本不为空或者有图片（与底部输入区域逻辑一致）
+	const isDisabled = useMemo(() => {
+		const hasText = textContent.trim().length > 0
+		const hasImages = stagingImages && stagingImages.length > 0
+		return !hasText && !hasImages
+	}, [textContent, stagingImages])
 	// initialize on first render, and when edit was just enabled
 	const _mustInitialize = useRef(true)
 	const _justEnabledEdit = useRef(false)
@@ -1424,8 +2153,12 @@ const UserMessageComponent = ({ chatMessage, messageIdx, isCheckpointGhost, curr
 			// Initialize images from the original message
 			setStagingImages(chatMessage.images || [])
 
+			// Initialize text content from the original message
+			const initialText = chatMessage.displayContent || ''
+			setTextContent(initialText)
+
 			if (textAreaFnsRef.current)
-				textAreaFnsRef.current.setValue(chatMessage.displayContent || '')
+				textAreaFnsRef.current.setValue(initialText)
 
 			textAreaRefState.focus();
 
@@ -1471,7 +2204,12 @@ const UserMessageComponent = ({ chatMessage, messageIdx, isCheckpointGhost, curr
 					))}
 				</div>
 			)}
-			<span className='px-0.5'>{chatMessage.displayContent}</span>
+			<span className='px-0.5 block max-h-[500px] overflow-hidden whitespace-pre-wrap break-words' style={{
+				display: '-webkit-box',
+				WebkitLineClamp: 20,
+				WebkitBoxOrient: 'vertical',
+				textOverflow: 'ellipsis',
+			}}>{chatMessage.displayContent}</span>
 		</>
 	}
 	else if (mode === 'edit') {
@@ -1481,6 +2219,11 @@ const UserMessageComponent = ({ chatMessage, messageIdx, isCheckpointGhost, curr
 			if (isDisabled) return;
 			if (!textAreaRefState) return;
 			if (messageIdx === undefined) return;
+
+			// 检查是否有内容：文本不为空或者有图片
+			const userMessage = textAreaRefState.value;
+			const hasContent = userMessage.trim() || (stagingImages && stagingImages.length > 0);
+			if (!hasContent) return;
 
 			// cancel any streams on this thread
 			const threadId = chatThreadsService.state.currentThreadId
@@ -1492,7 +2235,6 @@ const UserMessageComponent = ({ chatMessage, messageIdx, isCheckpointGhost, curr
 			chatThreadsService.setCurrentlyFocusedMessageIdx(undefined)
 
 			// stream the edit (pass current images state)
-			const userMessage = textAreaRefState.value;
 			try {
 				await chatThreadsService.editUserMessageAndStreamResponse({ userMessage, messageIdx, threadId, _chatImages: stagingImages })
 			} catch (e) {
@@ -1516,7 +2258,9 @@ const UserMessageComponent = ({ chatMessage, messageIdx, isCheckpointGhost, curr
 			}
 		}
 
-		if (!chatMessage.content) { // don't show if empty and not loading (if loading, want to show).
+		// 只有文本和图片都没有时才隐藏（允许只有图片或只有文字）
+		const hasContent = chatMessage.content || (chatMessage.images && chatMessage.images.length > 0)
+		if (!hasContent) {
 			return null
 		}
 
@@ -1539,7 +2283,7 @@ const UserMessageComponent = ({ chatMessage, messageIdx, isCheckpointGhost, curr
 				ref={setTextAreaRef}
 				className='min-h-[81px] max-h-[500px] px-0.5'
 				placeholder={t.editMessagePlaceholder()}
-				onChangeText={(text) => setIsDisabled(!text)}
+				onChangeText={(text) => setTextContent(text)}
 				onFocus={() => {
 					setIsFocused(true)
 					chatThreadsService.setCurrentlyFocusedMessageIdx(messageIdx);
@@ -1731,6 +2475,7 @@ const formatDuration = (startTime: number | null | undefined, endTime: number | 
 
 const AssistantMessageComponent = ({ chatMessage, isCheckpointGhost, isCommitted, messageIdx, assistantReplyNumber }: { chatMessage: ChatMessage & { role: 'assistant' }, isCheckpointGhost: boolean, messageIdx: number, isCommitted: boolean, assistantReplyNumber?: number }) => {
 
+	const t = useVoidChatI18n()
 	const accessor = useAccessor()
 	const chatThreadsService = accessor.get('IChatThreadService')
 
@@ -1745,7 +2490,24 @@ const AssistantMessageComponent = ({ chatMessage, isCheckpointGhost, isCommitted
 	}
 
 	const isEmpty = !chatMessage.displayContent && !chatMessage.reasoning
-	if (isEmpty) return null
+	// 如果是空的且正在流式传输，显示"等待回复中"状态
+	if (isEmpty) {
+		if (!isCommitted) {
+			return <div className=''>
+				<div className='w-full border border-void-border-3 rounded px-2 py-1 bg-void-bg-3 overflow-hidden'>
+					<div className='select-none flex items-center min-h-[24px]'>
+						<div className='ml-1 flex items-center overflow-hidden'>
+							<span className='text-void-fg-3 flex items-center flex-nowrap'>
+								{t.waitingForReply()}
+								<IconLoading className='w-3 text-[34px] ml-1' />
+							</span>
+						</div>
+					</div>
+				</div>
+			</div>
+		}
+		return null
+	}
 
 	return <>
 		{/* reasoning token */}
@@ -1919,6 +2681,8 @@ const getTitleOfBuiltinToolName = (t: ReturnType<typeof useVoidChatI18n>) => ({
 	'web_fetch': { done: t.toolWebFetchDone(), proposed: t.toolWebFetchProposed(), running: loadingTitleWrapper(t.toolWebFetchRunning()) },
 	'todo_write': { done: t.toolTodoWriteDone(), proposed: t.toolTodoWriteProposed(), running: loadingTitleWrapper(t.toolTodoWriteRunning()) },
 	'todo_read': { done: t.toolTodoReadDone(), proposed: t.toolTodoReadProposed(), running: loadingTitleWrapper(t.toolTodoReadRunning()) },
+	'sleep_wait': { done: t.toolSleepWaitDone(), proposed: t.toolSleepWaitProposed(), running: loadingTitleWrapper(t.toolSleepWaitRunning()) },
+	'skill': { done: t.toolSkillDone(), proposed: t.toolSkillProposed(), running: loadingTitleWrapper(t.toolSkillRunning()) },
 }) as const;
 
 
@@ -2092,6 +2856,20 @@ const toolNameToDesc = (toolName: BuiltinToolName, _toolParams: BuiltinToolCallP
 		'todo_read': () => {
 			return {
 				desc1: '',
+				desc1Info: undefined,
+			}
+		},
+		'sleep_wait': () => {
+			const toolParams = _toolParams as BuiltinToolCallParams['sleep_wait']
+			return {
+				desc1: `${toolParams.seconds}s`,
+				desc1Info: undefined,
+			}
+		},
+		'skill': () => {
+			const toolParams = _toolParams as BuiltinToolCallParams['skill']
+			return {
+				desc1: toolParams.skill,
 				desc1Info: undefined,
 			}
 		}
@@ -2463,6 +3241,82 @@ const ToolRequestAcceptRejectButtons = ({ toolName }: { toolName: ToolName }) =>
 	</div>
 }
 
+// Gather mode confirmation UI - shown when gather mode task is complete
+const GatherModeConfirmUI = ({ onSwitchToAgent, onContinue }: { onSwitchToAgent: () => void, onContinue: () => void }) => {
+	const t = useVoidChatI18n()
+
+	return (
+		<div className="p-4 rounded-lg bg-[var(--vscode-editor-background)] border border-[var(--vscode-widget-border)] space-y-4">
+			{/* Title */}
+			<div className="flex items-center gap-2 pb-2 border-b border-[var(--vscode-widget-border)]">
+				<Check size={16} className="text-[var(--vscode-foreground)]" />
+				<span className="text-sm font-medium text-[var(--vscode-foreground)]">{t.gatherModeTaskComplete()}</span>
+			</div>
+
+			{/* Description */}
+			<div className="text-sm text-[var(--vscode-foreground)] leading-relaxed">
+				{t.gatherModeTaskCompleteDesc()}
+			</div>
+
+			{/* Action buttons */}
+			<div className="flex gap-2 pt-2">
+				<button
+					onClick={onSwitchToAgent}
+					className="px-4 py-2 rounded-md text-sm font-medium bg-[var(--vscode-button-background)] text-[var(--vscode-button-foreground)] hover:bg-[var(--vscode-button-hoverBackground)] transition-all duration-150 cursor-pointer flex items-center gap-2"
+				>
+					<Check size={14} />
+					{t.gatherModeSwitchToAgent()}
+				</button>
+				<button
+					onClick={onContinue}
+					className="px-4 py-2 rounded-md text-sm font-medium bg-[var(--vscode-button-secondaryBackground)] text-[var(--vscode-button-secondaryForeground)] hover:bg-[var(--vscode-button-secondaryHoverBackground)] transition-all duration-150 cursor-pointer flex items-center gap-2"
+				>
+					<X size={14} />
+					{t.gatherModeContinueGather()}
+				</button>
+			</div>
+		</div>
+	)
+}
+
+// Workspace check UI - shown when no workspace folder is opened
+const WorkspaceCheckUI = ({ onOpenFolder, onIgnore }: { onOpenFolder: () => void, onIgnore: () => void }) => {
+	const t = useVoidChatI18n()
+
+	return (
+		<div className="p-4 rounded-lg bg-[var(--vscode-editor-background)] border border-[var(--vscode-widget-border)] space-y-4">
+			{/* Title */}
+			<div className="flex items-center gap-2 pb-2 border-b border-[var(--vscode-widget-border)]">
+				<AlertTriangle size={16} className="text-[var(--vscode-foreground)]" />
+				<span className="text-sm font-medium text-[var(--vscode-foreground)]">{t.workspaceCheckTitle()}</span>
+			</div>
+
+			{/* Description */}
+			<div className="text-sm text-[var(--vscode-foreground)] leading-relaxed">
+				{t.workspaceCheckDesc()}
+			</div>
+
+			{/* Action buttons */}
+			<div className="flex gap-2 pt-2">
+				<button
+					onClick={onOpenFolder}
+					className="px-4 py-2 rounded-md text-sm font-medium bg-[var(--vscode-button-background)] text-[var(--vscode-button-foreground)] hover:bg-[var(--vscode-button-hoverBackground)] transition-all duration-150 cursor-pointer flex items-center gap-2"
+				>
+					<Folder size={14} />
+					{t.workspaceCheckOpen()}
+				</button>
+				<button
+					onClick={onIgnore}
+					className="px-4 py-2 rounded-md text-sm font-medium bg-[var(--vscode-button-secondaryBackground)] text-[var(--vscode-button-secondaryForeground)] hover:bg-[var(--vscode-button-secondaryHoverBackground)] transition-all duration-150 cursor-pointer flex items-center gap-2"
+				>
+					<X size={14} />
+					{t.workspaceCheckIgnore()}
+				</button>
+			</div>
+		</div>
+	)
+}
+
 export const ToolChildrenWrapper = ({ children, className }: { children: React.ReactNode, className?: string }) => {
 	return <div className={`${className ? className : ''} cursor-default select-none`}>
 		<div className='px-2 min-w-full overflow-hidden'>
@@ -2494,10 +3348,10 @@ export const ListableToolItem = ({ name, onClick, isSmall, className, showDot }:
 
 
 
-const EditToolChildren = ({ uri, code, type }: { uri: URI | undefined, code: string, type: 'diff' | 'rewrite' }) => {
+const EditToolChildren = ({ uri, code, type, showRightOnly }: { uri: URI | undefined, code: string, type: 'diff' | 'rewrite', showRightOnly?: boolean }) => {
 
 	const content = type === 'diff' ?
-		<VoidDiffEditor uri={uri} searchReplaceBlocks={code} />
+		<VoidDiffEditor uri={uri} searchReplaceBlocks={code} showRightOnly={showRightOnly} />
 		: <ChatMarkdownRender string={`\`\`\`\n${code}\n\`\`\``} codeURI={uri} chatMessageLocation={undefined} />
 
 	return <div className='!select-text cursor-auto'>
@@ -2545,12 +3399,27 @@ const BottomChildren = ({ children, title }: { children: React.ReactNode, title:
 }
 
 
-const EditToolHeaderButtons = ({ applyBoxId, uri, codeStr, toolName, threadId }: { threadId: string, applyBoxId: string, uri: URI, codeStr: string, toolName: 'edit_file' | 'rewrite_file' }) => {
+const EditToolHeaderButtons = ({ applyBoxId, uri, codeStr, toolName, threadId, showRightOnly, onToggleShowRightOnly }: { threadId: string, applyBoxId: string, uri: URI, codeStr: string, toolName: 'edit_file' | 'rewrite_file', showRightOnly?: boolean, onToggleShowRightOnly?: () => void }) => {
 	const t = useVoidChatI18n()
 	const { streamState } = useEditToolStreamState({ applyBoxId, uri })
 	return <div className='flex items-center gap-1'>
 		{/* <StatusIndicatorForApplyButton applyBoxId={applyBoxId} uri={uri} /> */}
 		{/* <JumpToFileButton uri={uri} /> */}
+		{/* Switch button to show only right side in diff editor */}
+		{toolName === 'edit_file' && onToggleShowRightOnly && (
+			<div
+				className='flex items-center gap-1'
+				data-tooltip-id='void-tooltip'
+				data-tooltip-content={t.showInlineViewOnly()}
+				data-tooltip-place='top'
+			>
+				<VoidSwitch
+					value={showRightOnly ?? false}
+					onChange={onToggleShowRightOnly}
+					size='xs'
+				/>
+			</div>
+		)}
 		{streamState === 'idle-no-changes' && <CopyButton codeStr={codeStr} toolTipName={t.copy()} />}
 		<EditToolAcceptRejectButtonsHTML type={toolName} codeStr={codeStr} applyBoxId={applyBoxId} uri={uri} threadId={threadId} />
 	</div>
@@ -2701,13 +3570,14 @@ const MCPToolWrapper = ({ toolMessage }: WrapperProps<string>) => {
 	const desc1 = removeMCPToolNamePrefix(toolMessage.name)
 	const icon = null
 
-
-	if (toolMessage.type === 'running_now') return null // do not show running
-
 	const isError = false
 	const isRejected = toolMessage.type === 'rejected'
 	const { rawParams, params } = toolMessage
 	const componentParams: ToolHeaderParams = { title, desc1, isError, icon, isRejected, }
+
+	if (toolMessage.type === 'running_now') {
+		return <ToolHeaderWrapper {...componentParams} />
+	}
 
 	const paramsStr = JSON.stringify(params, null, 2)
 	componentParams.desc2 = <CopyButton codeStr={paramsStr} toolTipName={t.copyInput(paramsStr)} />
@@ -2759,12 +3629,15 @@ const builtinToolNameToComponent: { [T in BuiltinToolName]: { resultWrapper: Res
 			const icon = null
 
 			if (toolMessage.type === 'tool_request') return null // do not show past requests
-			if (toolMessage.type === 'running_now') return null // do not show running
 
 			const isError = false
 			const isRejected = toolMessage.type === 'rejected'
 			const { rawParams, params } = toolMessage
 			const componentParams: ToolHeaderParams = { title, desc1, desc1Info, isError, icon, isRejected, }
+
+			if (toolMessage.type === 'running_now') {
+				return <ToolHeaderWrapper {...componentParams} />
+			}
 
 			let range: [number, number] | undefined = undefined
 			if (toolMessage.params.startLine !== null || toolMessage.params.endLine !== null) {
@@ -2807,12 +3680,15 @@ const builtinToolNameToComponent: { [T in BuiltinToolName]: { resultWrapper: Res
 			const icon = null
 
 			if (toolMessage.type === 'tool_request') return null // do not show past requests
-			if (toolMessage.type === 'running_now') return null // do not show running
 
 			const isError = false
 			const isRejected = toolMessage.type === 'rejected'
 			const { rawParams, params } = toolMessage
 			const componentParams: ToolHeaderParams = { title, desc1, desc1Info, isError, icon, isRejected, }
+
+			if (toolMessage.type === 'running_now') {
+				return <ToolHeaderWrapper {...componentParams} />
+			}
 
 			if (params.uri) {
 				const rel = getRelative(params.uri, accessor)
@@ -2856,7 +3732,6 @@ const t = useVoidChatI18n()
 			const icon = null
 
 			if (toolMessage.type === 'tool_request') return null // do not show past requests
-			if (toolMessage.type === 'running_now') return null // do not show running
 
 			const isError = false
 			const isRejected = toolMessage.type === 'rejected'
@@ -2866,6 +3741,10 @@ const t = useVoidChatI18n()
 			if (params.uri) {
 				const rel = getRelative(params.uri, accessor)
 				if (rel) componentParams.info = t.searchOnlyIn(rel)
+			}
+
+			if (toolMessage.type === 'running_now') {
+				return <ToolHeaderWrapper {...componentParams} />
 			}
 
 			if (toolMessage.type === 'success') {
@@ -2912,13 +3791,16 @@ const t = useVoidChatI18n()
 			const icon = null
 
 			if (toolMessage.type === 'tool_request') return null // do not show past requests
-			if (toolMessage.type === 'running_now') return null // do not show running
 
 			const { rawParams, params } = toolMessage
 			const componentParams: ToolHeaderParams = { title, desc1, desc1Info, isError, icon, isRejected, }
 
 			if (params.includePattern) {
 				componentParams.info = t.searchOnlyIn(params.includePattern)
+			}
+
+			if (toolMessage.type === 'running_now') {
+				return <ToolHeaderWrapper {...componentParams} />
 			}
 
 			if (toolMessage.type === 'success') {
@@ -2962,7 +3844,6 @@ const t = useVoidChatI18n()
 			const icon = null
 
 			if (toolMessage.type === 'tool_request') return null // do not show past requests
-			if (toolMessage.type === 'running_now') return null // do not show running
 
 			const { rawParams, params } = toolMessage
 			const componentParams: ToolHeaderParams = { title, desc1, desc1Info, isError, icon, isRejected, }
@@ -2975,6 +3856,10 @@ const t = useVoidChatI18n()
 				}
 				if (params.isRegex) { info.push(t.useRegexSearch()) }
 				componentParams.info = info.join('; ')
+			}
+
+			if (toolMessage.type === 'running_now') {
+				return <ToolHeaderWrapper {...componentParams} />
 			}
 
 			if (toolMessage.type === 'success') {
@@ -3018,7 +3903,6 @@ const t = useVoidChatI18n()
 			const icon = null;
 
 			if (toolMessage.type === 'tool_request') return null // do not show past requests
-			if (toolMessage.type === 'running_now') return null // do not show running
 
 			const { rawParams, params } = toolMessage;
 			const componentParams: ToolHeaderParams = { title, desc1, desc1Info, isError, icon, isRejected };
@@ -3028,6 +3912,10 @@ const t = useVoidChatI18n()
 			if (uriStr) infoarr.push(uriStr)
 			if (params.isRegex) infoarr.push(t.useRegexSearch())
 			componentParams.info = infoarr.join('; ')
+
+			if (toolMessage.type === 'running_now') {
+				return <ToolHeaderWrapper {...componentParams} />;
+			}
 
 			if (toolMessage.type === 'success') {
 				const { result } = toolMessage; // result is array of snippets
@@ -3067,7 +3955,6 @@ const t = useVoidChatI18n()
 			const icon = null
 
 			if (toolMessage.type === 'tool_request') return null // do not show past requests
-			if (toolMessage.type === 'running_now') return null // do not show running
 
 			const isError = false
 			const isRejected = toolMessage.type === 'rejected'
@@ -3075,6 +3962,10 @@ const t = useVoidChatI18n()
 			const componentParams: ToolHeaderParams = { title, desc1, desc1Info, isError, icon, isRejected, }
 
 			componentParams.info = getRelative(uri, accessor) // full path
+
+			if (toolMessage.type === 'running_now') {
+				return <ToolHeaderWrapper {...componentParams} />
+			}
 
 			if (toolMessage.type === 'success') {
 				const { result } = toolMessage
@@ -3224,7 +4115,6 @@ const t = useVoidChatI18n()
 			const icon = null
 
 			if (toolMessage.type === 'tool_request') return null // do not show past requests
-			if (toolMessage.type === 'running_now') return null // do not show running
 
 			const isError = false
 			const isRejected = toolMessage.type === 'rejected'
@@ -3233,6 +4123,10 @@ const t = useVoidChatI18n()
 
 			const relativePath = params.cwd ? getRelative(URI.file(params.cwd), accessor) : ''
 			componentParams.info = relativePath ? t.runningIn(relativePath) : undefined
+
+			if (toolMessage.type === 'running_now') {
+				return <ToolHeaderWrapper {...componentParams} />
+			}
 
 			if (toolMessage.type === 'success') {
 				const { result } = toolMessage
@@ -3264,12 +4158,15 @@ const t = useVoidChatI18n()
 			const icon = null
 
 			if (toolMessage.type === 'tool_request') return null // do not show past requests
-			if (toolMessage.type === 'running_now') return null // do not show running
 
 			const isError = false
 			const isRejected = toolMessage.type === 'rejected'
 			const { rawParams, params } = toolMessage
 			const componentParams: ToolHeaderParams = { title, desc1, desc1Info, isError, icon, isRejected, }
+
+			if (toolMessage.type === 'running_now') {
+				return <ToolHeaderWrapper {...componentParams} />
+			}
 
 			if (toolMessage.type === 'success') {
 				const { persistentTerminalId } = params
@@ -3298,12 +4195,15 @@ const t = useVoidChatI18n()
 			const icon = null
 
 			if (toolMessage.type === 'tool_request') return null // do not show past requests
-			if (toolMessage.type === 'running_now') return null // do not show running
 
 			const isError = false
 			const isRejected = toolMessage.type === 'rejected'
 			const { rawParams, params } = toolMessage
 			const componentParams: ToolHeaderParams = { title, desc1, desc1Info, isError, icon, isRejected, }
+
+			if (toolMessage.type === 'running_now') {
+				return <ToolHeaderWrapper {...componentParams} />
+			}
 
 			if (toolMessage.type === 'success') {
 				const result = toolMessage.result as Awaited<BuiltinToolResultType['xml_escape']>
@@ -3344,7 +4244,9 @@ const t = useVoidChatI18n()
 				return <AskUserQuestionUI threadId={threadId} questions={params.questions} />
 			}
 
-			if (toolMessage.type === 'running_now') return null // do not show running
+			if (toolMessage.type === 'running_now') {
+				return <ToolHeaderWrapper { ...{ title, desc1: '', isError: false, icon, isRejected } } />
+			}
 
 			// success state - show the answers directly (not collapsed)
 			if (toolMessage.type === 'success') {
@@ -3396,13 +4298,16 @@ const t = useVoidChatI18n()
 			const { desc1, desc1Info } = toolNameToDesc(toolMessage.name, toolMessage.params, accessor)
 			const icon = null
 
-			if (toolMessage.type === 'tool_request') return null
-			if (toolMessage.type === 'running_now') return null
+			if (toolMessage.type === 'tool_request') return null // do not show past requests
 
 			const isError = false
 			const isRejected = toolMessage.type === 'rejected'
 			const { rawParams, params } = toolMessage
 			const componentParams: ToolHeaderParams = { title, desc1, desc1Info, isError, icon, isRejected, }
+
+			if (toolMessage.type === 'running_now') {
+				return <ToolHeaderWrapper {...componentParams} />
+			}
 
 			if (toolMessage.type === 'success') {
 				const { result } = toolMessage
@@ -3435,14 +4340,19 @@ const t = useVoidChatI18n()
 			const title = getTitle(toolMessage, t)
 			const icon = null
 
-			if (toolMessage.type === 'tool_request') return null
-			if (toolMessage.type === 'running_now') return null
+			if (toolMessage.type === 'tool_request') return null // do not show past requests
 
 			const isError = false
 			const isRejected = toolMessage.type === 'rejected'
-			const { params } = toolMessage
 			let desc1 = ''
 			let todos: TodoItem[] = []
+			const componentParams: ToolHeaderParams = { title, desc1, isError, icon, isRejected }
+
+			if (toolMessage.type === 'running_now') {
+				return <ToolHeaderWrapper {...componentParams} />
+			}
+
+			const { params } = toolMessage
 
 			if (toolMessage.type === 'success') {
 				const { result } = toolMessage
@@ -3450,7 +4360,6 @@ const t = useVoidChatI18n()
 				const completedCount = todos.filter(todo => todo.status === 'completed').length
 				desc1 = t.todoTaskStats(todos.length, completedCount)
 			}
-			const componentParams: ToolHeaderParams = { title, desc1, isError, icon, isRejected }
 
 			if (toolMessage.type === 'success') {
 				componentParams.children = <TodoListUI todos={todos} />
@@ -3473,13 +4382,17 @@ const t = useVoidChatI18n()
 			const title = getTitle(toolMessage, t)
 			const icon = null
 
-			if (toolMessage.type === 'tool_request') return null
-			if (toolMessage.type === 'running_now') return null
+			if (toolMessage.type === 'tool_request') return null // do not show past requests
 
 			const isError = false
 			const isRejected = toolMessage.type === 'rejected'
 			let desc1 = ''
 			let todos: TodoItem[] = []
+			const componentParams: ToolHeaderParams = { title, desc1, isError, icon, isRejected }
+
+			if (toolMessage.type === 'running_now') {
+				return <ToolHeaderWrapper {...componentParams} />
+			}
 
 			if (toolMessage.type === 'success') {
 				const { result } = toolMessage
@@ -3487,10 +4400,119 @@ const t = useVoidChatI18n()
 				const completedCount = todos.filter(todo => todo.status === 'completed').length
 				desc1 = t.todoTaskStats(todos.length, completedCount)
 			}
-			const componentParams: ToolHeaderParams = { title, desc1, isError, icon, isRejected }
 
 			if (toolMessage.type === 'success') {
 				componentParams.children = <TodoListUI todos={todos} />
+			}
+			else if (toolMessage.type === 'tool_error') {
+				const { result } = toolMessage
+				componentParams.bottomChildren = <BottomChildren title={t.error()}>
+					<CodeChildren>
+						{result}
+					</CodeChildren>
+				</BottomChildren>
+			}
+
+			return <ToolHeaderWrapper {...componentParams} />
+		},
+	},
+	'sleep_wait': {
+		resultWrapper: ({ toolMessage, threadId }) => {
+			const t = useVoidChatI18n()
+			const accessor = useAccessor()
+			const title = getTitle(toolMessage, t)
+			const { desc1 } = toolNameToDesc(toolMessage.name, toolMessage.params, accessor)
+			const icon = null
+
+			if (toolMessage.type === 'tool_request') return null // do not show past requests
+
+			const isError = false
+			const isRejected = toolMessage.type === 'rejected'
+
+			const componentParams: ToolHeaderParams = { title, desc1, isError, icon, isRejected }
+
+			// 获取 streamState 来访问 skipWait
+			const streamState = useChatThreadsStreamState(threadId)
+
+			if (toolMessage.type === 'running_now') {
+				// 提前结束按钮（只在 sleep_wait 工具运行时显示）
+				const handleSkipWait = async () => {
+					if (streamState?.isRunning === 'tool' && 'skipWait' in streamState && streamState.skipWait) {
+						const skipWait = await streamState.skipWait
+						if (typeof skipWait === 'function') {
+							skipWait()
+						}
+					}
+				}
+
+				componentParams.desc2 = (
+					<button
+						onClick={handleSkipWait}
+						className={`
+							px-2 py-0.5
+							bg-[var(--vscode-button-secondaryBackground)]
+							text-[var(--vscode-button-secondaryForeground)]
+							hover:bg-[var(--vscode-button-secondaryHoverBackground)]
+							rounded text-xs
+							cursor-pointer
+							transition-all duration-150
+						`}
+					>
+						{t.skipWait()}
+					</button>
+				)
+				return <ToolHeaderWrapper {...componentParams} />
+			}
+
+			if (toolMessage.type === 'success') {
+				const { result } = toolMessage
+				componentParams.children = <ToolChildrenWrapper>
+					{result.skipped ? t.waitSkipped(result.seconds) : t.waitedSeconds(result.seconds)}
+				</ToolChildrenWrapper>
+			}
+			else if (toolMessage.type === 'tool_error') {
+				const { result } = toolMessage
+				componentParams.bottomChildren = <BottomChildren title={t.error()}>
+					<CodeChildren>
+						{result}
+					</CodeChildren>
+				</BottomChildren>
+			}
+
+
+			return <ToolHeaderWrapper {...componentParams} />
+		},
+	},
+	'skill': {
+		resultWrapper: ({ toolMessage }) => {
+			const t = useVoidChatI18n()
+			const accessor = useAccessor()
+			const title = getTitle(toolMessage, t)
+			const { desc1 } = toolNameToDesc(toolMessage.name, toolMessage.params, accessor)
+			const icon = null
+
+			if (toolMessage.type === 'tool_request') return null // do not show past requests
+
+			const isError = false
+			const isRejected = toolMessage.type === 'rejected'
+			const componentParams: ToolHeaderParams = { title, desc1, isError, icon, isRejected, }
+
+			if (toolMessage.type === 'running_now') {
+				return <ToolHeaderWrapper {...componentParams} />
+			}
+
+			if (toolMessage.type === 'success') {
+				const { result } = toolMessage
+				componentParams.children = <ToolChildrenWrapper>
+					<SmallProseWrapper>
+						<ChatMarkdownRender
+							string={result.skillContent}
+							chatMessageLocation={undefined}
+							isApplyEnabled={false}
+							isLinkDetectionEnabled={true}
+						/>
+					</SmallProseWrapper>
+				</ToolChildrenWrapper>
 			}
 			else if (toolMessage.type === 'tool_error') {
 				const { result } = toolMessage
@@ -3611,19 +4633,6 @@ const Checkpoint = ({ message, threadId, messageIdx, isCheckpointGhost, threadIs
 		? currCheckpointIdx === null || currCheckpointIdx === undefined
 		: currCheckpointIdx === messageIdx
 
-	// Determine status text
-	const getStatusText = () => {
-		if (isDisabled) {
-			return t.disabledWhileRunning()
-		}
-		if (isLastCheckpoint) {
-			// Last checkpoint: show "(Latest)" when at latest, "(Click to cancel)" when another checkpoint is selected
-			return isSelected ? t.checkpointLatest() : t.checkpointCancel()
-		}
-		// Other checkpoints: show "(Disabled)" when selected, "(Click to disable)" when not selected
-		return isSelected ? t.checkpointClickToCancel() : t.checkpointClickToJump()
-	}
-
 	return <div
 		className={`flex items-center justify-center px-2 `}
 	>
@@ -3663,9 +4672,6 @@ const Checkpoint = ({ message, threadId, messageIdx, isCheckpointGhost, threadIs
 		>
 			{isSelected && !isLastCheckpoint ? <Flag className='inline-block mr-1 h-3 w-3' /> : null}
 			{t.checkpoint()}
-			<span className='ml-1 text-void-fg-4 opacity-70'>
-				{getStatusText()}
-			</span>
 		</div>
 	</div>
 }
@@ -3696,9 +4702,13 @@ const areChatBubblePropsEqual = (
 	prevProps: ChatBubbleProps,
 	nextProps: ChatBubbleProps
 ): boolean => {
-	// 引用相等，无需重渲染
-	if (prevProps.chatMessage === nextProps.chatMessage) {
-		return true
+	// 首先检查影响遮罩状态的关键属性（必须在引用检查之前）
+	// currCheckpointIdx 变化会影响 isCheckpointGhost，必须触发重渲染
+	if (
+		prevProps.currCheckpointIdx !== nextProps.currCheckpointIdx ||
+		prevProps.chatIsRunning !== nextProps.chatIsRunning
+	) {
+		return false
 	}
 
 	// 检查关键属性
@@ -3710,12 +4720,16 @@ const areChatBubblePropsEqual = (
 		prevProps.messageIdx !== nextProps.messageIdx ||
 		prevProps.isCommitted !== nextProps.isCommitted ||
 		prevProps.threadId !== nextProps.threadId ||
-		prevProps.currCheckpointIdx !== nextProps.currCheckpointIdx ||
 		prevProps.totalMessages !== nextProps.totalMessages ||
 		prevProps.assistantReplyNumber !== nextProps.assistantReplyNumber ||
 		prevProps.userReplyNumber !== nextProps.userReplyNumber
 	) {
 		return false
+	}
+
+	// 消息引用相等时，其他属性已比较完毕，可以跳过内容比较
+	if (prevProps.chatMessage === nextProps.chatMessage) {
+		return true
 	}
 
 	// isCheckpointGhost 计算逻辑
@@ -3850,8 +4864,8 @@ const _ChatBubble = ({ threadId, chatMessage, currCheckpointIdx, isCommitted, me
 							threadId={threadId}
 						/>
 					</div>
-					{chatMessage.type === 'tool_request' ?
-						<div className={`${isCheckpointGhost ? 'opacity-50 pointer-events-none' : ''}`}>
+				{chatMessage.type === 'tool_request' ?
+						<div className={`mt-2 ${isCheckpointGhost ? 'opacity-50 pointer-events-none' : ''}`}>
 							<ToolRequestAcceptRejectButtons toolName={chatMessage.name} />
 						</div> : null}
 				</>
@@ -3892,14 +4906,33 @@ const _ChatBubble = ({ threadId, chatMessage, currCheckpointIdx, isCommitted, me
 		messageContent = null
 	}
 
-	// Checkpoint messages have their own special styling, don't show the footer
+	// Checkpoint messages have their own special styling
 	if (role === 'checkpoint') {
-		return <div className={`border border-void-border-1 rounded-md p-2 mb-2 ${isCheckpointGhost ? 'opacity-50' : ''}`}>
+		return <div data-message-idx={messageIdx} className={`border border-void-border-1 rounded-md p-2 mb-2 ${isCheckpointGhost ? 'opacity-50' : ''}`}>
 			{messageContent}
+			{/* JSON collapsible section */}
+			{showJsonDebug && <>
+				<hr className='my-2 border-t border-void-border-1' />
+				<div className='pt-1'>
+					<div className='flex items-center justify-between'>
+						<div className='flex items-center gap-2'>
+							<button
+								onClick={() => setIsJsonOpen(v => !v)}
+								className='flex items-center gap-1 text-void-fg-3 hover:text-void-fg-1 text-xs cursor-pointer'
+							>
+								<ChevronRight className={`h-3 w-3 transition-transform duration-100 ${isJsonOpen ? 'rotate-90' : ''}`} />
+								<span>JSON</span>
+							</button>
+						</div>
+						<CopyButton codeStr={getChatMessageJson()} toolTipName={t.copyJson()} />
+					</div>
+					{isJsonOpen && <pre className='mt-1 p-2 bg-void-bg-2 rounded text-void-fg-3 text-xs overflow-auto max-h-48 whitespace-pre-wrap'>{getChatMessageJson()}</pre>}
+				</div>
+			</>}
 		</div>
 	}
 
-	return <div className={`border border-void-border-1 rounded-md p-2 mb-2 ${isCheckpointGhost ? 'opacity-50' : ''}`}>
+	return <div data-message-idx={messageIdx} className={`border border-void-border-1 rounded-md p-2 mb-2 ${isCheckpointGhost ? 'opacity-50' : ''}`}>
 		{messageContent}
 		{/* Model and message type info - always visible */}
 		<div className='mt-2 border-t border-void-border-1 pt-2'>
@@ -3907,6 +4940,17 @@ const _ChatBubble = ({ threadId, chatMessage, currCheckpointIdx, isCommitted, me
 				<div className='flex items-center gap-1'>
 					{displayContentForCopy && <CopyButton codeStr={displayContentForCopy} toolTipName={t.copy()} />}
 					<span className="text-void-fg-4 text-xs opacity-60">{chatMessage.role}{(chatMessage as any).modelName ? ` · ${(chatMessage as any).modelName}` : ''}</span>
+					{/* 显示文件修改标记 */}
+					{role === 'tool' && (chatMessage as any).name && FILE_MODIFICATION_TOOL_NAMES.includes((chatMessage as any).name) && (
+						<span
+							className="text-xs font-bold ml-1"
+							style={{
+								color: 'var(--vscode-textLink-foreground)',
+							}}
+						>
+							M
+						</span>
+					)}
 					{role === 'user' && userReplyNumber && (
 						<span className="text-void-fg-4 text-xs opacity-60"> · {t.userReply(userReplyNumber)}</span>
 					)}
@@ -3929,6 +4973,9 @@ const _ChatBubble = ({ threadId, chatMessage, currCheckpointIdx, isCommitted, me
 							<ChevronRight className={`h-3 w-3 transition-transform duration-100 ${isJsonOpen ? 'rotate-90' : ''}`} />
 							<span>JSON</span>
 						</button>
+						{(role === 'user' || role === 'assistant') && (chatMessage as any).createdAt && (
+							<span className='text-void-fg-4 text-xs'>{formatMessageTime((chatMessage as any).createdAt)}</span>
+						)}
 						{role === 'assistant' && isCommitted && (() => {
 							const duration = formatDuration((chatMessage as any).startTime, (chatMessage as any).endTime)
 							return duration && <span className='text-void-fg-4 text-xs'>{t.llmRequestDuration()}: {duration}</span>
@@ -4253,6 +5300,7 @@ export const SidebarChat = () => {
 	const accessor = useAccessor()
 	const commandService = accessor.get('ICommandService')
 	const chatThreadsService = accessor.get('IChatThreadService')
+	const metricsService = accessor.get('IMetricsService')
 
 	const settingsState = useSettingsState()
 
@@ -4285,8 +5333,112 @@ export const SidebarChat = () => {
 	const latestError = currThreadStreamState?.error
 	const { displayContentSoFar, toolCallSoFar, reasoningSoFar } = currThreadStreamState?.llmInfo ?? {}
 
+	// Track streaming start time to avoid time jumping on re-renders
+	const streamingStartTimeRef = useRef<number | null>(null)
+	const prevIsRunningForTimeRef = useRef<IsRunningType | undefined>(undefined)
+	// Detect when streaming starts (was not running, now running)
+	if (isRunning && !prevIsRunningForTimeRef.current && streamingStartTimeRef.current === null) {
+		streamingStartTimeRef.current = Date.now()
+	}
+	// Reset when streaming ends
+	if (!isRunning) {
+		streamingStartTimeRef.current = null
+	}
+	prevIsRunningForTimeRef.current = isRunning
+
 	// this is just if it's currently being generated, NOT if it's currently running
 	const toolIsGenerating = toolCallSoFar && !toolCallSoFar.isDone // show loading for slow tools (right now just edit)
+
+	// ======== Gather mode confirmation state ========
+	const [showGatherModeConfirm, setShowGatherModeConfirm] = useState(false)
+	const prevIsRunningRef = useRef<IsRunningType | undefined>(undefined)
+	// 从当前线程状态获取 chatMode，默认为 'agent'
+	const chatMode = currentThread?.state?.chatMode ?? 'agent'
+
+	// Detect when gather mode streaming ends (was running, now not running)
+	useEffect(() => {
+		// Only handle gather mode
+		if (chatMode !== 'gather') {
+			setShowGatherModeConfirm(false)
+			prevIsRunningRef.current = isRunning
+			return
+		}
+
+		// Detect transition from running to not running
+		// isRunning becomes undefined when streaming ends
+		const wasRunning = prevIsRunningRef.current !== undefined
+		const isNowStopped = isRunning === undefined
+		if (wasRunning && isNowStopped && !latestError) {
+			// Streaming just ended in gather mode without error
+			setShowGatherModeConfirm(true)
+		}
+
+		prevIsRunningRef.current = isRunning
+	}, [isRunning, chatMode, latestError])
+
+	// Hide confirmation when user starts streaming again
+	useEffect(() => {
+		if (isRunning !== undefined) {
+			setShowGatherModeConfirm(false)
+		}
+	}, [isRunning])
+
+	// ======== Workspace check state ========
+	const [showWorkspaceCheck, setShowWorkspaceCheck] = useState(false)
+	const workspaceContextService = accessor.get('IWorkspaceContextService')
+	// 用于跟踪上一次的 isRunning 状态（工作空间检查专用）
+	const prevIsRunningForWorkspaceRef = useRef<IsRunningType | undefined>(undefined)
+	// 用于跟踪当前对话是否已忽略工作空间提示（内存级别，切换对话后重置）
+	const workspaceCheckIgnoredRef = useRef(false)
+
+	// Workspace check - detect when streaming ends without workspace
+	// 适用于所有模式：chat、plan、agent
+	useEffect(() => {
+		// Only check when streaming ends
+		if (isRunning !== undefined) {
+			setShowWorkspaceCheck(false)
+			prevIsRunningForWorkspaceRef.current = isRunning
+			return
+		}
+
+		// Check workspace state
+		const workbenchState = workspaceContextService.getWorkbenchState()
+		const noWorkspace = workbenchState === 1 // WorkbenchState.EMPTY = 1
+
+		// Get previous running state
+		const wasRunning = prevIsRunningForWorkspaceRef.current !== undefined
+
+		// Only show if just finished streaming and no workspace, and not ignored in this thread
+		if (wasRunning && noWorkspace && !latestError && !workspaceCheckIgnoredRef.current) {
+			setShowWorkspaceCheck(true)
+		}
+
+		prevIsRunningForWorkspaceRef.current = isRunning
+	}, [isRunning, workspaceContextService, latestError])
+
+	// Hide workspace check when user starts streaming again
+	useEffect(() => {
+		if (isRunning !== undefined) {
+			setShowWorkspaceCheck(false)
+		}
+	}, [isRunning])
+
+	// Hide workspace check when workspace state changes (folder opened)
+	useEffect(() => {
+		const disposable = workspaceContextService.onDidChangeWorkbenchState(() => {
+			const workbenchState = workspaceContextService.getWorkbenchState()
+			if (workbenchState !== 1) { // Not EMPTY
+				setShowWorkspaceCheck(false)
+			}
+		})
+		return () => disposable.dispose()
+	}, [workspaceContextService])
+
+	// Reset workspace check ignored state when switching threads
+	useEffect(() => {
+		workspaceCheckIgnoredRef.current = false
+		setShowWorkspaceCheck(false)
+	}, [chatThreadsState.currentThreadId])
 
 	// ----- SIDEBAR CHAT state (local) -----
 
@@ -4298,11 +5450,18 @@ export const SidebarChat = () => {
 	const hasNoContent = instructionsAreEmpty && (!images || images.length === 0)
 	const isDisabled = hasNoContent || !!isFeatureNameDisabled('Chat', settingsState)
 
+
 	const sidebarRef = useRef<HTMLDivElement>(null)
 	const scrollContainerRef = useRef<HTMLDivElement | null>(null)
+	// 用于在加载更多消息时保存滚动位置
+	const scrollAnchorForLoadMoreRef = useRef<{ scrollTop: number, scrollHeight: number } | null>(null)
+	// 用于在跳转到历史消息时禁用自动滚动到底部
+	const disableAutoScrollRef = useRef(false)
+	// 用于设置 isAtBottom 状态（编辑消息后需要设置为 true 以触发自动滚动）
+	// 第二个参数 shouldScroll 控制是否同时执行滚动
+	const setIsAtBottomRef = useRef<(value: boolean, shouldScroll?: boolean) => void>(() => {})
 
 	// ======== 渐进式渲染状态 ========
-	// 初始渲染的消息数量（从末尾开始）
 	const INITIAL_RENDER_COUNT = 30
 	// 每次加载更多的数量
 	const LOAD_MORE_COUNT = 30
@@ -4313,6 +5472,9 @@ export const SidebarChat = () => {
 	// 上一次的线程ID，用于检测线程切换
 	const prevThreadIdRef = useRef<string | null>(null)
 	const onSubmit = useCallback(async (_forceSubmit?: string) => {
+
+		// 发送消息时恢复自动滚动到底部
+		disableAutoScrollRef.current = false
 
 		if (isDisabled && !_forceSubmit) return
 		if (isRunning) return
@@ -4329,19 +5491,31 @@ export const SidebarChat = () => {
 		// If this is the first user message, use it as title
 		// If there are existing messages, use the first user message as title
 		const currentMessages = currentThread?.messages ?? []
+
+		// 如果当前消息数量超过一页且开启了重置策略，重置为只显示最后一页
+		if (settingsState.globalSettings.resetVisibleOnSend && currentMessages.length > INITIAL_RENDER_COUNT) {
+			setVisibleCount(INITIAL_RENDER_COUNT)
+		}
+
 		const firstUserMsgIdx = currentMessages.findIndex(msg => msg.role === 'user')
 		let title: string
 		if (firstUserMsgIdx !== -1) {
 			// Existing user message - use it as title (truncated)
 			const firstUserMsg = currentMessages[firstUserMsgIdx]
-			if (firstUserMsg.role === 'user' && firstUserMsg.displayContent) {
-				title = truncateForDisplay(firstUserMsg.displayContent)
+			title = getDisplayTitleFromUserMessage(firstUserMsg, t)
+		} else {
+			// This is the first message - check if it's only images
+			const hasText = userMessage && userMessage.trim().length > 0
+			const hasImages = currentImages && currentImages.length > 0
+			if (!hasText && hasImages) {
+				// Only images, no text
+				title = t.imageMessage()
+			} else if (hasText) {
+				// Has text content
+				title = truncateForDisplay(userMessage)
 			} else {
 				title = t.chatTitle()
 			}
-		} else {
-			// This is the first message - use the current message as title
-			title = truncateForDisplay(userMessage)
 		}
 
 		// Notify sidebar pane to update title immediately
@@ -4358,12 +5532,39 @@ export const SidebarChat = () => {
 		textAreaFnsRef.current?.setValue('')
 		textAreaRef.current?.focus() // focus input after submit
 
-	}, [chatThreadsService, isDisabled, isRunning, textAreaRef, textAreaFnsRef, setSelections, setImages, images, settingsState, currentThread, t])
+	}, [chatThreadsService, isDisabled, isRunning, textAreaRef, textAreaFnsRef, setSelections, setImages, images, settingsState, currentThread, t, INITIAL_RENDER_COUNT])
 
 	const onAbort = async () => {
 		const threadId = currentThread.id
 		await chatThreadsService.abortRunning(threadId)
 	}
+
+	// Handler for switching to agent mode and executing
+	const handleSwitchToAgentMode = useCallback(() => {
+		// 设置当前线程的 chatMode 为 agent（仅内存，不持久化）
+		chatThreadsService.setCurrentThreadChatMode('agent')
+		setShowGatherModeConfirm(false)
+
+		// Auto-send message to execute the plan
+		onSubmit('帮我执行')
+	}, [chatThreadsService, onSubmit])
+
+	// Handler for continuing in gather mode
+	const handleContinueGather = useCallback(() => {
+		setShowGatherModeConfirm(false)
+	}, [])
+
+	// Handler for opening folder
+	const handleOpenFolder = useCallback(() => {
+		commandService.executeCommand('workbench.action.files.openFolder')
+		// 不关闭弹窗，让用户选择文件夹后自动消失（因为工作空间状态会变化）
+	}, [commandService])
+
+	// Handler for ignoring workspace check
+	const handleIgnoreWorkspaceCheck = useCallback(() => {
+		setShowWorkspaceCheck(false)
+		workspaceCheckIgnoredRef.current = true // 当前对话不再显示
+	}, [])
 
 	// Update title when thread changes (switch thread or initial load)
 	useEffect(() => {
@@ -4377,11 +5578,7 @@ export const SidebarChat = () => {
 
 		if (firstUserMsgIdx !== -1) {
 			const firstUserMsg = messages[firstUserMsgIdx]
-			if (firstUserMsg.role === 'user' && firstUserMsg.displayContent) {
-				title = truncateForDisplay(firstUserMsg.displayContent)
-			} else {
-				title = t.chatTitle()
-			}
+			title = getDisplayTitleFromUserMessage(firstUserMsg, t)
 		} else {
 			title = t.chatTitle()
 		}
@@ -4421,21 +5618,46 @@ export const SidebarChat = () => {
 	// 加载更多消息的函数
 	const loadMoreMessages = useCallback(() => {
 		if (isLoadingMore || !hasMoreMessages) return
+
+		// 在加载前同步保存当前滚动位置
+		const div = scrollContainerRef.current
+		if (div) {
+			scrollAnchorForLoadMoreRef.current = {
+				scrollTop: div.scrollTop,
+				scrollHeight: div.scrollHeight
+			}
+		}
+
 		setIsLoadingMore(true)
-		// 使用 requestAnimationFrame 避免阻塞 UI
-		requestAnimationFrame(() => {
-			// 使用函数式更新，获取最新的 totalMessagesCount
-			setVisibleCount(prev => {
-				// 重新计算最新的 totalMessagesCount
-				const latestTotal = previousMessages.length
-				return Math.min(prev + LOAD_MORE_COUNT, latestTotal)
-			})
-			setIsLoadingMore(false)
+		// 使用函数式更新，获取最新的 totalMessagesCount
+		setVisibleCount(prev => {
+			// 重新计算最新的 totalMessagesCount
+			const latestTotal = previousMessages.length
+			return Math.min(prev + LOAD_MORE_COUNT, latestTotal)
 		})
 	}, [isLoadingMore, hasMoreMessages, previousMessages.length])
 
+	// 当 visibleCount 更新后，延迟设置 isLoadingMore 为 false
+	// 这样确保 children 已经更新并完成渲染
+	const prevVisibleCountRef = useRef(visibleCount)
+	useEffect(() => {
+		if (visibleCount !== prevVisibleCountRef.current) {
+			prevVisibleCountRef.current = visibleCount
+			// visibleCount 变化了，说明消息已经加载完成
+			// 等待下一帧再设置 isLoadingMore 为 false
+			if (isLoadingMore) {
+				requestAnimationFrame(() => {
+					setIsLoadingMore(false)
+				})
+			}
+		}
+	}, [visibleCount, isLoadingMore])
+
 	// 滚动监听：当滚动到顶部时自动加载更多
 	const handleScrollForLoadMore = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+		// 如果正在跳转过程中，不触发加载更多
+		if (jumpToMessageRef.current.isJumping) return
+
 		const target = e.target as HTMLDivElement
 		const { scrollTop } = target
 		// 当滚动到顶部附近（距离顶部 200px 以内）时加载更多
@@ -4509,6 +5731,225 @@ export const SidebarChat = () => {
 		return numbers
 	}, [previousMessages])
 
+	// 计算用户输入历史
+	const inputHistory = useMemo(() => {
+		const history: InputHistoryItem[] = []
+		for (let i = 0; i < previousMessages.length; i++) {
+			const message = previousMessages[i]
+			if (message.role === 'user') {
+				const { userReplyNumber } = messageNumbers[i] || {}
+				history.push({
+					messageIdx: i,
+					displayContent: message.displayContent || '',
+					userReplyNumber: userReplyNumber || 1,
+					createdAt: message.createdAt || null,
+				})
+			}
+		}
+		return history
+	}, [previousMessages, messageNumbers])
+
+	// 跳转到指定消息的函数
+	const jumpToMessageRef = useRef<{
+		targetMessageIdx: number | null
+		isJumping: boolean
+	}>({ targetMessageIdx: null, isJumping: false })
+
+	// 用于跟踪 visibleCount 的 ref，确保异步函数中能获取最新值
+	const visibleCountRef = useRef(visibleCount)
+	visibleCountRef.current = visibleCount
+	const totalMessagesCountRef = useRef(totalMessagesCount)
+	totalMessagesCountRef.current = totalMessagesCount
+
+	// 等待目标消息元素出现并渲染稳定的辅助函数
+	const waitForMessageElement = useCallback((targetMessageIdx: number): Promise<HTMLElement | null> => {
+		return new Promise((resolve) => {
+			const element = document.querySelector(`[data-message-idx="${targetMessageIdx}"]`) as HTMLElement | null
+			if (element) {
+				resolve(element)
+				return
+			}
+
+			// 使用 MutationObserver 等待元素出现
+			const container = scrollContainerRef.current
+			if (!container) {
+				resolve(null)
+				return
+			}
+
+			const observer = new MutationObserver(() => {
+				const el = document.querySelector(`[data-message-idx="${targetMessageIdx}"]`) as HTMLElement | null
+				if (el) {
+					observer.disconnect()
+					resolve(el)
+				}
+			})
+
+			observer.observe(container, { childList: true, subtree: true })
+
+			// 超时保护
+			setTimeout(() => {
+				observer.disconnect()
+				const el = document.querySelector(`[data-message-idx="${targetMessageIdx}"]`) as HTMLElement | null
+				resolve(el)
+			}, 2000)
+		})
+	}, [scrollContainerRef])
+
+	// 封装的 scrollIntoView 方法，在 requestAnimationFrame 之后执行，并检查滚动位置是否正确
+	const scrollMessageIntoView = useCallback((targetMessageIdx: number) => {
+
+		const scrollToElement = () => {
+			const messageElement = document.querySelector(`[data-message-idx="${targetMessageIdx}"]`) as HTMLElement | null
+			if (!messageElement) {
+				return false
+			}
+			messageElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
+			return true
+		}
+
+		// 检查元素是否在视口中心附近
+		const isElementInCenter = () => {
+			const messageElement = document.querySelector(`[data-message-idx="${targetMessageIdx}"]`) as HTMLElement | null
+			if (!messageElement || !scrollContainerRef.current) return false
+
+			const containerRect = scrollContainerRef.current.getBoundingClientRect()
+			const elementRect = messageElement.getBoundingClientRect()
+
+			const containerCenter = containerRect.top + containerRect.height / 2
+			const elementCenter = elementRect.top + elementRect.height / 2
+
+			// 允许 50px 的误差范围
+			const tolerance = 50
+			const isCenter = Math.abs(containerCenter - elementCenter) < tolerance
+
+			return isCenter
+		}
+
+		requestAnimationFrame(() => {
+			if (!scrollToElement()) return
+
+			// 等待滚动动画完成后检查位置
+			setTimeout(() => {
+				if (!isElementInCenter()) {
+					// 如果位置不正确，再次尝试滚动（使用 instant 行为确保立即定位）
+					const messageElement = document.querySelector(`[data-message-idx="${targetMessageIdx}"]`) as HTMLElement | null
+					if (messageElement) {
+						messageElement.scrollIntoView({ behavior: 'instant', block: 'center' })
+					}
+				}
+			}, 500) // 等待 smooth 滚动动画完成
+		})
+	}, [scrollContainerRef])
+
+	const jumpToMessage = useCallback((targetMessageIdx: number) => {
+		const div = scrollContainerRef.current
+		if (!div) return
+
+		// 记录跳转到历史消息事件
+		metricsService.capture('Chat History Jump', {
+			targetMessageIdx,
+			totalMessages: totalMessagesCountRef.current
+		})
+
+		// 禁用自动滚动到底部
+		disableAutoScrollRef.current = true
+		// 同时设置 shouldAutoScrollRef = false，防止编辑消息时触发意外滚动
+		setIsAtBottomRef.current(false, false)
+
+		// 检查目标消息是否在当前可见范围内
+		const currentVisibleStart = Math.max(0, totalMessagesCountRef.current - visibleCountRef.current)
+		if (targetMessageIdx >= currentVisibleStart) {
+			// 消息已可见，使用封装方法滚动到该位置
+			scrollMessageIntoView(targetMessageIdx)
+			// 延迟恢复自动滚动
+			setTimeout(() => {
+				disableAutoScrollRef.current = false
+			}, 1000)
+		} else {
+			// 消息不可见，需要加载更多消息
+			jumpToMessageRef.current = { targetMessageIdx, isJumping: true }
+
+			// 手动一页一页加载更多消息直到目标消息可见
+			const loadUntilVisible = async () => {
+				// 记录上一次的 visibleCount，用于判断是否还有更多可加载
+				let lastVisibleCount = visibleCountRef.current
+
+				// 循环加载直到目标消息可见或没有更多可加载
+				while (true) {
+					// 计算当前可见起始索引
+					const currentStart = Math.max(0, totalMessagesCountRef.current - visibleCountRef.current)
+
+					// 检查目标消息是否已可见
+					if (targetMessageIdx >= currentStart) {
+						break
+					}
+
+					// 检查是否已加载全部消息
+					if (visibleCountRef.current >= totalMessagesCountRef.current) {
+						break
+					}
+
+					// 跳转到顶部（不触发默认的加载更多逻辑）
+					if (scrollContainerRef.current) {
+						scrollContainerRef.current.scrollTop = 0
+					}
+
+					// 保存滚动位置锚点
+					if (scrollContainerRef.current) {
+						scrollAnchorForLoadMoreRef.current = {
+							scrollTop: scrollContainerRef.current.scrollTop,
+							scrollHeight: scrollContainerRef.current.scrollHeight
+						}
+					}
+
+					// 加载一页消息
+					setIsLoadingMore(true)
+					const newVisibleCount = Math.min(visibleCountRef.current + LOAD_MORE_COUNT, totalMessagesCountRef.current)
+					setVisibleCount(newVisibleCount)
+
+					// 等待渲染完成
+					await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+					setIsLoadingMore(false)
+
+					// 额外等待确保 DOM 更新
+					await new Promise(resolve => setTimeout(resolve, 50))
+
+					// 检查是否真的加载了更多（避免死循环）
+					if (visibleCountRef.current === lastVisibleCount) {
+						break
+					}
+					lastVisibleCount = visibleCountRef.current
+				}
+
+				// 消息现在可见，等待元素渲染完成后滚动到该位置
+				jumpToMessageRef.current.isJumping = false
+
+				// 使用 MutationObserver 等待目标元素出现并稳定
+				const messageElement = await waitForMessageElement(targetMessageIdx)
+				if (messageElement) {
+					// 额外等待一帧确保布局计算完成
+					await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+					// 使用封装方法滚动
+					scrollMessageIntoView(targetMessageIdx)
+				}
+				// 恢复自动滚动
+				disableAutoScrollRef.current = false
+			}
+			loadUntilVisible()
+		}
+	}, [scrollContainerRef, scrollAnchorForLoadMoreRef, disableAutoScrollRef, LOAD_MORE_COUNT, waitForMessageElement, scrollMessageIntoView, metricsService])
+
+	// 滚动到底部函数
+	const scrollToBottomFn = useCallback(() => {
+		// 记录滚动到底部事件
+		metricsService.capture('Chat Scroll To Bottom', {
+			totalMessages: totalMessagesCountRef.current
+		})
+		// 启用自动滚动并执行滚动
+		setIsAtBottomRef.current(true, true)
+	}, [metricsService])
+
 	const previousMessagesHTML = useMemo(() => {
 		// 使用渐进式渲染：只渲染 visibleMessages（从末尾开始的消息）
 		return visibleMessages.map((message, i) => {
@@ -4525,7 +5966,10 @@ export const SidebarChat = () => {
 				isCommitted={true}
 				chatIsRunning={isRunning}
 				threadId={threadId}
-				_scrollToBottom={() => scrollToBottom(scrollContainerRef)}
+				_scrollToBottom={() => {
+					// 设置自动滚动状态并触发滚动
+					setIsAtBottomRef.current(true, true)
+				}}
 				totalMessages={totalMessagesCount}
 				assistantReplyNumber={assistantReplyNumber}
 				userReplyNumber={userReplyNumber}
@@ -4551,6 +5995,7 @@ export const SidebarChat = () => {
 				modelName: null,
 				startTime: null,
 				endTime: null,
+				createdAt: streamingStartTimeRef.current,
 			}}
 			messageIdx={streamingChatIdx}
 			isCommitted={false}
@@ -4575,13 +6020,15 @@ export const SidebarChat = () => {
 	const messagesHTML = <ScrollToBottomContainer
 		key={'messages' + chatThreadsState.currentThreadId} // force rerender on all children if id changes
 		scrollContainerRef={scrollContainerRef}
+		scrollAnchorForLoadMore={scrollAnchorForLoadMoreRef}
+		disableAutoScrollRef={disableAutoScrollRef}
+		setIsAtBottomRef={setIsAtBottomRef}
 		className={`
 			flex flex-col
 			px-4 py-4 space-y-4
 			w-full h-full
 			overflow-x-hidden
 			overflow-y-auto
-			${previousMessagesHTML.length === 0 && !displayContentSoFar ? 'hidden' : ''}
 		`}
 		onScroll={handleScrollForLoadMore}
 	>
@@ -4633,6 +6080,26 @@ export const SidebarChat = () => {
 				<WarningBox className='text-sm my-2 mx-4' onClick={() => { commandService.executeCommand(VOID_OPEN_SETTINGS_ACTION_ID) }} text={t.openSettings()} />
 			</div>
 		}
+
+		{/* Workspace check - 显示在 gather 模式确认弹窗之前 */}
+		{showWorkspaceCheck && previousMessages.length > 0 && (
+			<div className='px-2 my-1'>
+				<WorkspaceCheckUI
+					onOpenFolder={handleOpenFolder}
+					onIgnore={handleIgnoreWorkspaceCheck}
+				/>
+			</div>
+		)}
+
+		{/* Gather mode confirmation */}
+		{showGatherModeConfirm && previousMessages.length > 0 && (
+			<div className='px-2 my-1'>
+				<GatherModeConfirmUI
+					onSwitchToAgent={handleSwitchToAgentMode}
+					onContinue={handleContinueGather}
+				/>
+			</div>
+		)}
 	</ScrollToBottomContainer>
 
 
@@ -4646,6 +6113,283 @@ export const SidebarChat = () => {
 			onAbort()
 		}
 	}, [onSubmit, onAbort, isRunning])
+
+	// 导出会话为 .chatshare 文件的处理函数
+	const handleExportAsChatshare = useCallback(async () => {
+		const notificationService = accessor.get('INotificationService')
+		const notificationHelper = createNotificationHelper(notificationService)
+		const metricsService = accessor.get('IMetricsService')
+
+		const thread = chatThreadsService.getCurrentThread()
+		if (!thread) {
+			notificationHelper.error(t.exportChatNoThread())
+			return
+		}
+		if (thread.messages.length === 0) {
+			notificationHelper.error(t.exportChatNoMessages())
+			return
+		}
+
+		// 获取会话标题
+		const firstUserMsg = thread.messages.find(m => m.role === 'user')
+		let title = t.exportChatDefaultTitle()
+		if (firstUserMsg && firstUserMsg.role === 'user') {
+			title = getDisplayTitleFromUserMessage(firstUserMsg, t)
+			// Windows 禁止: < > : " / \ | ? * 及控制字符
+			// Linux 禁止: / 和 \0
+			// macOS 禁止: / 和 :
+			// 替换所有非法字符及中英文逗号句号为下划线，并去除前后空格和尾部点号（Windows 不允许）
+			title = title
+				.replace(/[\x00-\x1f<>:"/\\|?*,，.。]/g, '_')
+				.trim()
+				.replace(/\.+$/, '')
+				.slice(0, 50) || t.exportChatDefaultTitle()
+		}
+		const defaultFileName = `${title}.chatshare`
+
+		// 获取服务
+		const fileDialogService = accessor.get('IFileDialogService')
+		const chatThreadStorageService = accessor.get('IChatThreadStorageService')
+		const fileService = accessor.get('IFileService')
+
+		// 弹出保存对话框
+		const uri = await fileDialogService.showSaveDialog({
+			title: t.exportChatTitle(),
+			defaultUri: URI.file(defaultFileName),
+			filters: [{ name: 'ChatShare', extensions: ['chatshare'] }]
+		})
+
+		if (!uri) {
+			return
+		}
+
+		// 获取完整的 ThreadData
+		const threadData = chatThreadStorageService.getThreadData(thread.id)
+		if (!threadData) {
+			notificationHelper.error(t.exportChatNoData())
+			return
+		}
+
+		// 序列化为 JSON，处理 URI 对象（与数据库存储逻辑一致）
+		const jsonString = JSON.stringify(threadData, (key, value) => {
+			if (value instanceof URI) {
+				return { $mid: 1, scheme: value.scheme, path: value.path, query: value.query, fragment: value.fragment }
+			}
+			return value
+		})
+
+		// 写入文件
+		const buffer = VSBuffer.fromString(jsonString)
+		await fileService.writeFile(uri, buffer)
+
+		// 记录导出会话事件
+		metricsService.capture('Chat Export', {
+			format: 'chatshare',
+			messageCount: thread.messages.length,
+			success: true
+		})
+
+		notificationHelper.info(t.exportChatSuccess())
+	}, [chatThreadsService, accessor, t])
+
+	// 导出会话为 Markdown 文件的处理函数
+	const handleExportAsMarkdown = useCallback(async () => {
+		const notificationService = accessor.get('INotificationService')
+		const notificationHelper = createNotificationHelper(notificationService)
+		const metricsService = accessor.get('IMetricsService')
+
+		const thread = chatThreadsService.getCurrentThread()
+		if (!thread) {
+			notificationHelper.error(t.exportChatNoThread())
+			return
+		}
+		if (thread.messages.length === 0) {
+			notificationHelper.error(t.exportChatNoMessages())
+			return
+		}
+
+		// 获取会话标题
+		const firstUserMsg = thread.messages.find(m => m.role === 'user')
+		let title = t.exportChatDefaultTitle()
+		if (firstUserMsg && firstUserMsg.role === 'user') {
+			title = getDisplayTitleFromUserMessage(firstUserMsg, t)
+			title = title
+				.replace(/[\x00-\x1f<>:"/\\|?*,，.。]/g, '_')
+				.trim()
+				.replace(/\.+$/, '')
+				.slice(0, 50) || t.exportChatDefaultTitle()
+		}
+		const defaultFileName = `${title}.md`
+
+		// 获取服务
+		const fileDialogService = accessor.get('IFileDialogService')
+		const chatThreadStorageService = accessor.get('IChatThreadStorageService')
+		const fileService = accessor.get('IFileService')
+
+		// 弹出保存对话框
+		const uri = await fileDialogService.showSaveDialog({
+			title: t.exportChatMarkdownTitle(),
+			defaultUri: URI.file(defaultFileName),
+			filters: [{ name: 'Markdown', extensions: ['md'] }]
+		})
+
+		if (!uri) {
+			return
+		}
+
+		// 获取完整的 ThreadData
+		const threadData = chatThreadStorageService.getThreadData(thread.id)
+		if (!threadData) {
+			notificationHelper.error(t.exportChatNoData())
+			return
+		}
+
+		// 获取工作区路径
+		const workspaceContextService = accessor.get('IWorkspaceContextService')
+		const workspace = workspaceContextService.getWorkspace()
+		const workspacePath = workspace.folders.length > 0 ? workspace.folders[0].uri.fsPath : undefined
+
+		// 使用工具方法转换为 Markdown
+		const { threadDataToMarkdown } = await import('../../../../common/helpers/chatToMarkdown.js')
+		const markdownContent = threadDataToMarkdown(threadData, workspacePath)
+
+		// 写入文件
+		const buffer = VSBuffer.fromString(markdownContent)
+		await fileService.writeFile(uri, buffer)
+
+		// 记录导出会话事件
+		metricsService.capture('Chat Export', {
+			format: 'markdown',
+			messageCount: thread.messages.length,
+			success: true
+		})
+
+		notificationHelper.info(t.exportChatMarkdownSuccess())
+	}, [chatThreadsService, accessor, t])
+
+	// 从 .chatshare 文件导入会话的处理函数
+	const handleImportFromChatshare = useCallback(async () => {
+		const notificationService = accessor.get('INotificationService')
+		const notificationHelper = createNotificationHelper(notificationService)
+		const fileDialogService = accessor.get('IFileDialogService')
+		const fileService = accessor.get('IFileService')
+		const metricsService = accessor.get('IMetricsService')
+
+		// 弹出文件选择对话框
+		const uris = await fileDialogService.showOpenDialog({
+			title: t.importChatTitle(),
+			canSelectFiles: true,
+			canSelectFolders: false,
+			canSelectMany: false,
+			filters: [{ name: 'ChatShare', extensions: ['chatshare'] }]
+		})
+
+		if (!uris || uris.length === 0) {
+			return
+		}
+
+		const uri = uris[0]
+
+		try {
+			// 读取文件内容
+			const content = await fileService.readFile(uri)
+			const jsonString = content.value.toString()
+
+			// 解析 JSON，处理 URI 对象的反序列化
+			let threadData: import('../../../../common/chatThreadStorageService.js').ThreadData
+			try {
+				threadData = JSON.parse(jsonString, (key, value) => {
+					if (value && typeof value === 'object' && value.$mid === 1) {
+						return URI.from(value)
+					}
+					return value
+				})
+			} catch {
+				notificationHelper.error(t.importChatParseError())
+				// 记录导入会话失败事件
+				metricsService.capture('Chat Import', {
+					success: false,
+					error: 'parse_error'
+				})
+				return
+			}
+
+			// 验证数据格式
+			if (!threadData || !threadData.metadata || !threadData.messages || !Array.isArray(threadData.messages)) {
+				notificationHelper.error(t.importChatInvalidData())
+				// 记录导入会话失败事件
+				metricsService.capture('Chat Import', {
+					success: false,
+					error: 'invalid_data'
+				})
+				return
+			}
+
+			// 导入会话（创建新会话，避免 ID 冲突）
+			chatThreadsService.importThreadFromData(threadData)
+
+			// 记录导入会话成功事件
+			metricsService.capture('Chat Import', {
+				success: true,
+				messageCount: threadData.messages.length
+			})
+
+			notificationHelper.info(t.importChatSuccess())
+		} catch {
+			notificationHelper.error(t.importChatReadError())
+			// 记录导入会话失败事件
+			metricsService.capture('Chat Import', {
+				success: false,
+				error: 'read_error'
+			})
+		}
+	}, [accessor, t, chatThreadsService])
+
+	// 复制会话的处理函数
+	const handleCopyChat = useCallback(() => {
+		const notificationService = accessor.get('INotificationService')
+		const chatThreadStorageService = accessor.get('IChatThreadStorageService')
+		const notificationHelper = createNotificationHelper(notificationService)
+		const metricsService = accessor.get('IMetricsService')
+
+		const thread = chatThreadsService.getCurrentThread()
+		if (!thread) {
+			notificationHelper.error(t.copyChatNoThread())
+			return
+		}
+		if (thread.messages.length === 0) {
+			notificationHelper.error(t.copyChatNoMessages())
+			return
+		}
+
+		// 获取完整的 ThreadData
+		const threadData = chatThreadStorageService.getThreadData(thread.id)
+		if (!threadData) {
+			notificationHelper.error(t.copyChatNoData())
+			return
+		}
+
+		// 导入会话（创建新会话，避免 ID 冲突）
+		chatThreadsService.importThreadFromData(threadData)
+
+		// 记录复制会话事件
+		metricsService.capture('Chat Copy', {
+			messageCount: thread.messages.length,
+			success: true
+		})
+
+		// 显示成功消息
+		notificationHelper.info(t.copyChatSuccess())
+	}, [chatThreadsService, accessor, t])
+
+	// 菜单项定义
+	const menuItems = useMenuItems({
+		currentThread,
+		onCopyChat: handleCopyChat,
+		onExportAsMarkdown: handleExportAsMarkdown,
+		onExportAsChatshare: handleExportAsChatshare,
+		onImportFromChatshare: handleImportFromChatshare,
+	})
 
 	const inputChatArea = <VoidChatArea
 		featureName='Chat'
@@ -4661,6 +6405,10 @@ export const SidebarChat = () => {
 		setImages={setImages}
 		supportsVision={supportsVision}
 		onClickAnywhere={() => { textAreaRef.current?.focus() }}
+		inputHistory={inputHistory}
+		onJumpToMessage={jumpToMessage}
+		onScrollToBottom={scrollToBottomFn}
+		menuItems={menuItems}
 	>
 		<VoidInputBox2
 			enableAtToMention
@@ -4760,6 +6508,8 @@ export const SidebarChat = () => {
 			{threadPageInput}
 		</ErrorBoundary>
 	</div>
+
+
 
 
 	return (

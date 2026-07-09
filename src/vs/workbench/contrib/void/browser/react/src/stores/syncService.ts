@@ -30,7 +30,8 @@ export const extractMetadataFromThread = (thread: ThreadType): ThreadMetadata =>
 		id: thread.id,
 		createdAt: thread.createdAt,
 		lastModified: thread.lastModified,
-		messageCount: thread.messages.length
+		messageCount: thread.messages.length,
+		projectId: thread.projectId
 	}
 }
 
@@ -44,7 +45,8 @@ export const extractThreadStateFromThread = (thread: ThreadType): ThreadState =>
 		stagingImages: thread.state.stagingImages,
 		focusedMessageIdx: thread.state.focusedMessageIdx,
 		linksOfMessageIdx: thread.state.linksOfMessageIdx,
-		mountedInfo: thread.state.mountedInfo
+		mountedInfo: thread.state.mountedInfo,
+		chatMode: thread.state.chatMode
 	}
 }
 
@@ -104,6 +106,7 @@ export const convertStreamState = (streamState: ThreadStreamState[string]): Stre
  */
 export const syncThreadsStateToStore = (threadsState: ThreadsState) => {
 	const { allThreads, currentThreadId } = threadsState
+	const currentState = useChatStore.getState()
 
 	const messagesByThread: Record<string, ChatMessage[]> = {}
 	const threadMetadata: Record<string, ThreadMetadata> = {}
@@ -114,7 +117,12 @@ export const syncThreadsStateToStore = (threadsState: ThreadsState) => {
 		if (thread) {
 			messagesByThread[threadId] = thread.messages
 			threadMetadata[threadId] = extractMetadataFromThread(thread)
-			threadStateByThread[threadId] = extractThreadStateFromThread(thread)
+			// Preserve showRightOnly from current state (not persisted in VSCode service)
+			const existingThreadState = currentState.threadStateByThread[threadId]
+			threadStateByThread[threadId] = {
+				...extractThreadStateFromThread(thread),
+				showRightOnly: existingThreadState?.showRightOnly
+			}
 			filesWithUserChangesByThread[threadId] = thread.filesWithUserChanges
 		}
 	}
@@ -230,13 +238,15 @@ export const getAllThreadsFromStore = () => {
 				id: metadata.id,
 				createdAt: metadata.createdAt,
 				lastModified: metadata.lastModified,
+				projectId: metadata.projectId,
 				messages,
 				state: threadState || {
 					currCheckpointIdx: null,
 					stagingSelections: [],
 					stagingImages: [],
 					focusedMessageIdx: undefined,
-					linksOfMessageIdx: {}
+					linksOfMessageIdx: {},
+					chatMode: 'agent'
 				},
 				filesWithUserChanges: state.filesWithUserChangesByThread[threadId] || new Set()
 			}

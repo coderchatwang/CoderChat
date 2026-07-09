@@ -53,8 +53,8 @@ export function getCustomDataSource(runtime: Runtime, toDispose: Disposable[]) {
 		getContent(uriString: string): Thenable<string> {
 			const uri = Uri.parse(uriString);
 			if (localExtensionUris.has(uriString)) {
-				return workspace.fs.readFile(uri).then(buffer => {
-					return new runtime.TextDecoder().decode(buffer);
+	return workspace.fs.readFile(uri).then(buffer => {
+					return new runtime.TextDecoder().decode(buffer as unknown as ArrayBuffer);
 				});
 			}
 			return workspace.openTextDocument(uri).then(doc => {

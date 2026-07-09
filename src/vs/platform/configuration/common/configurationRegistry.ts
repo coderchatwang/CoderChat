@@ -200,6 +200,11 @@ export interface IConfigurationPropertySchema extends IJSONSchema {
 	enumItemLabels?: string[];
 
 	/**
+	 * Optional keywords used for search purposes.
+	 */
+	keywords?: string[];
+
+	/**
 	 * When specified, controls the presentation format of string settings.
 	 * Otherwise, the presentation format defaults to `singleline`.
 	 */
@@ -216,6 +221,24 @@ export interface IConfigurationPropertySchema extends IJSONSchema {
 	 * a system-wide policy.
 	 */
 	policy?: IPolicy;
+
+	/**
+	 * When specified, this setting's default value can always be overwritten by
+	 * an experiment.
+	 */
+	experiment?: {
+		/**
+		 * The mode of the experiment.
+		 * - `startup`: The setting value is updated to the experiment value only on startup.
+		 * - `auto`: The setting value is updated to the experiment value automatically (whenever the experiment value changes).
+		 */
+		mode: 'startup' | 'auto';
+
+		/**
+		 * The name of the experiment. By default, this is `config.${settingId}`
+		 */
+		name?: string;
+	};
 }
 
 export interface IExtensionInfo {

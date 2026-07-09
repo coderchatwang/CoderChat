@@ -1,14 +1,14 @@
 {
 	"nameShort": "CoderChat",
 	"nameLong": "CoderChat",
-	"voidVersion": "1.0.0",
-	"voidRelease": "0044",
+	"voidVersion": "1.4.0",
+	"voidRelease": "0050",
 	"applicationName": "coderchat",
 	"dataFolderName": ".coderchat-editor",
 	"win32MutexName": "coderchateditor",
 	"licenseName": "MIT",
-	"licenseUrl": "https://github.com/voideditor/void/blob/main/LICENSE.txt",
-	"serverLicenseUrl": "https://github.com/voideditor/void/blob/main/LICENSE.txt",
+	"licenseUrl": "https://github.com/coderchatwang/CoderChat/blob/main/LICENSE.txt",
+	"serverLicenseUrl": "https://github.com/coderchatwang/CoderChat/blob/main/LICENSE.txt",
 	"serverGreeting": [],
 	"serverLicense": [],
 	"serverLicensePrompt": "",
@@ -21,7 +21,7 @@
 	"win32x64AppId": "{{92B07A40-1B9D-4566-90FB-2C302E538FA6}}",
 	"win32arm64AppId": "{{040F1908-20E3-459F-B839-1C73DEFD3B7E}}",
 	"win32x64UserAppId": "{{99950B16-AD62-47E8-9FBC-6A8663E03609}}",
-	"win32arm64AppId": "{{39236B3F-2827-4FE7-B0EF-B30392019B54}}",
+	"win32arm64UserAppId": "{{39236B3F-2827-4FE7-B0EF-B30392019B54}}",
 	"win32AppUserModelId": "CoderChat.Editor",
 	"win32ShellNameShort": "CoderChat",
 	"win32TunnelServiceMutex": "coderchat-tunnelservice",
@@ -29,7 +29,7 @@
 	"darwinBundleIdentifier": "com.coderchat.code",
 	"linuxIconName": "coderchat-editor",
 	"licenseFileName": "LICENSE.txt",
-	"reportIssueUrl": "https://github.com/voideditor/void/issues/new",
+	"reportIssueUrl": "https://github.com/coderchatwang/CoderChat/issues/new",
 	"nodejsRepository": "https://nodejs.org",
 	"urlProtocol": "coderchat",
 	"extensionsGallery": {
@@ -57,6 +57,7 @@
 		"https://voideditor.com",
 		"https://voideditor.dev",
 		"https://github.com/voideditor/void",
+		"https://github.com/coderchatwang/CoderChat",
 		"https://ollama.com"
 	]
 }

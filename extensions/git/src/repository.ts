@@ -804,7 +804,7 @@ export class Repository implements Disposable {
 		return this._cherryPickInProgress;
 	}
 
-	private _operations = new OperationManager(this.logger);
+	private _operations: OperationManager;
 	get operations(): OperationManager { return this._operations; }
 
 	private _state = RepositoryState.Idle;
@@ -859,6 +859,8 @@ export class Repository implements Disposable {
 		private readonly logger: LogOutputChannel,
 		private telemetryReporter: TelemetryReporter
 	) {
+		this._operations = new OperationManager(this.logger);
+
 		const repositoryWatcher = workspace.createFileSystemWatcher(new RelativePattern(Uri.file(repository.root), '**'));
 		this.disposables.push(repositoryWatcher);
 

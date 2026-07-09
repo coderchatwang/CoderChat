@@ -54,6 +54,12 @@ export interface INotificationProperties {
 	 * such as future requests will not cause the notification to show again.
 	 */
 	readonly neverShowAgain?: INeverShowAgainOptions;
+
+	/**
+	 * Bypass the notification filter (do not disturb mode).
+	 * When set to true, the notification will be visible even when filter is set to only show errors.
+	 */
+	readonly bypassFilter?: boolean;
 }
 
 export enum NeverShowAgainScope {

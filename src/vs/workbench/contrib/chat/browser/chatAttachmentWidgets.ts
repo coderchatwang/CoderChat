@@ -265,7 +265,8 @@ export class ImageAttachmentWidget extends AbstractChatAttachmentWidget {
 	}
 
 	private createImageElements(buffer: ArrayBuffer | Uint8Array, widget: HTMLElement, hoverElement: HTMLElement) {
-		const blob = new Blob([buffer], { type: 'image/png' });
+		const blobBuffer = buffer instanceof Uint8Array ? new Uint8Array(buffer.buffer as ArrayBuffer) : buffer;
+		const blob = new Blob([blobBuffer], { type: 'image/png' });
 		const url = URL.createObjectURL(blob);
 		const pillImg = dom.$('img.chat-attached-context-pill-image', { src: url, alt: '' });
 		const pill = dom.$('div.chat-attached-context-pill', {}, pillImg);

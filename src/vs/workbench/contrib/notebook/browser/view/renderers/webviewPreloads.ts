@@ -19,7 +19,7 @@ import type * as rendererApi from 'vscode-notebook-renderer';
 // function. Imports are not allowed. This is stringified and injected into
 // the webview.
 
-declare module globalThis {
+declare namespace globalThis {
 	const acquireVsCodeApi: () => ({
 		getState(): { [key: string]: unknown };
 		setState(data: { [key: string]: unknown }): void;
@@ -1069,7 +1069,7 @@ async function webviewPreloads(ctx: PreloadContext) {
 				},
 
 				blob(): Blob {
-					return new Blob([valueBytes], { type: this.mime });
+					return new Blob([new Uint8Array(valueBytes as Uint8Array<ArrayBuffer>)], { type: this.mime });
 				},
 
 				get _allOutputItems() {
@@ -2519,7 +2519,8 @@ async function webviewPreloads(ctx: PreloadContext) {
 				},
 
 				blob(): Blob {
-					return new Blob([this.data()], { type: this.mime });
+					const data = this.data();
+					return new Blob([new Uint8Array(new Uint8Array(data)).buffer], { type: this.mime });
 				},
 
 				_allOutputItems: [{

@@ -6,6 +6,8 @@
 import { CodeWindow, mainWindow } from './window.js';
 import { Emitter } from '../common/event.js';
 
+type TrustedTypePolicyOptions = import('trusted-types/lib/index.d.ts').TrustedTypePolicyOptions;
+
 class WindowManager {
 
 	static readonly INSTANCE = new WindowManager();
@@ -138,4 +140,25 @@ export function isWCOEnabled(): boolean {
 // See docs at https://developer.mozilla.org/en-US/docs/Web/API/WindowControlsOverlay/getTitlebarAreaRect
 export function getWCOTitlebarAreaRect(targetWindow: Window): DOMRect | undefined {
 	return (targetWindow.navigator as any)?.windowControlsOverlay?.getTitlebarAreaRect();
+}
+
+export interface IMonacoEnvironment {
+
+	createTrustedTypesPolicy?<Options extends TrustedTypePolicyOptions>(
+		policyName: string,
+		policyOptions?: Options,
+	): undefined | Pick<TrustedTypePolicy, 'name' | Extract<keyof Options, keyof TrustedTypePolicyOptions>>;
+
+	getWorker?(moduleId: string, label: string): Worker | Promise<Worker>;
+
+	getWorkerUrl?(moduleId: string, label: string): string;
+
+	globalAPI?: boolean;
+
+}
+interface IGlobalWithMonacoEnvironment {
+	MonacoEnvironment?: IMonacoEnvironment;
+}
+export function getMonacoEnvironment(): IMonacoEnvironment | undefined {
+	return (globalThis as IGlobalWithMonacoEnvironment).MonacoEnvironment;
 }

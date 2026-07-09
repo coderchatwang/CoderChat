@@ -492,7 +492,8 @@ export class NotificationViewItem extends Disposable implements INotificationVie
 		}
 
 		let priority = notification.priority ?? NotificationPriority.DEFAULT;
-		if (priority === NotificationPriority.DEFAULT && severity !== Severity.Error) {
+		// 如果设置了 bypassFilter，则跳过过滤器检查
+		if (!notification.bypassFilter && priority === NotificationPriority.DEFAULT && severity !== Severity.Error) {
 			if (filter.global === NotificationsFilter.ERROR) {
 				priority = NotificationPriority.SILENT; // filtered globally
 			} else if (isNotificationSource(notification.source) && filter.sources.get(notification.source.id) === NotificationsFilter.ERROR) {

@@ -298,7 +298,6 @@ const defaultModelOptions = {
 	reservedOutputTokenSpace: 4_096,
 	cost: { input: 0, output: 0 },
 	downloadable: false,
-	specialToolFormat: 'openai-style',
 	supportsSystemMessage: 'system-role',
 	supportsFIM: false,
 	reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: false, canIOReasoning: false, openSourceThinkTags: ['<think>', '</think>'] },
@@ -1638,6 +1637,14 @@ const modelSettingsOfProvider: { [providerName in ProviderName]: VoidStaticProvi
 // ---------------- exports ----------------
 
 // returns the capabilities and the adjusted modelName if it was a fallback
+// 根据 providerName 前缀推断 specialToolFormat 默认值
+const getDefaultSpecialToolFormat = (providerName: ProviderName): 'openai-style' | 'anthropic-style' | 'gemini-style' | undefined => {
+	if (providerName.startsWith('openAICompatible')) return 'openai-style';
+	if (providerName.startsWith('anthropicCompatible')) return 'anthropic-style';
+	if (providerName.startsWith('geminiCompatible')) return 'gemini-style';
+	return undefined;
+};
+
 export const getModelCapabilities = (
 	providerName: ProviderName,
 	modelName: string,
@@ -1658,16 +1665,27 @@ export const getModelCapabilities = (
 	for (const modelName_ in modelOptions) {
 		const lowercaseModelName_ = modelName_.toLowerCase()
 		if (lowercaseModelName === lowercaseModelName_) {
-			return { ...modelOptions[modelName], ...overrides, modelName, recognizedModelName: modelName, isUnrecognizedModel: false };
+			const modelOpts = modelOptions[modelName_];
+			const specialToolFormat = modelOpts.specialToolFormat ?? overrides?.specialToolFormat ?? getDefaultSpecialToolFormat(providerName);
+			// When using anthropic-style, system message must be separated (not in messages array)
+			const supportsSystemMessage = specialToolFormat === 'anthropic-style' ? 'separated' : (overrides?.supportsSystemMessage ?? modelOpts.supportsSystemMessage);
+			return { ...modelOpts, ...overrides, specialToolFormat, supportsSystemMessage, modelName, recognizedModelName: modelName, isUnrecognizedModel: false } as const as VoidStaticModelInfo & { modelName: string; recognizedModelName: string; isUnrecognizedModel: false };
 		}
 	}
 
 	const result = modelOptionsFallback(modelName)
 	if (result) {
-		return { ...result, ...overrides, modelName: result.modelName, isUnrecognizedModel: false };
+		const specialToolFormat = result.specialToolFormat ?? overrides?.specialToolFormat ?? getDefaultSpecialToolFormat(providerName);
+		// When using anthropic-style, system message must be separated (not in messages array)
+		const supportsSystemMessage = specialToolFormat === 'anthropic-style' ? 'separated' : (overrides?.supportsSystemMessage ?? result.supportsSystemMessage);
+		return { ...result, ...overrides, specialToolFormat, supportsSystemMessage, modelName: result.modelName, isUnrecognizedModel: false } as const as VoidStaticModelInfo & { modelName: string; recognizedModelName: string; isUnrecognizedModel: false };
 	}
 
-	return { modelName, ...defaultModelOptions, ...overrides, isUnrecognizedModel: true };
+	const defaultSpecialToolFormat = getDefaultSpecialToolFormat(providerName);
+	const specialToolFormat = overrides?.specialToolFormat ?? defaultSpecialToolFormat;
+	// When using anthropic-style, system message must be separated (not in messages array)
+	const supportsSystemMessage = specialToolFormat === 'anthropic-style' ? 'separated' : (overrides?.supportsSystemMessage ?? defaultModelOptions.supportsSystemMessage);
+	return { modelName, ...defaultModelOptions, ...overrides, specialToolFormat, supportsSystemMessage, isUnrecognizedModel: true } as const as VoidStaticModelInfo & { modelName: string; recognizedModelName?: undefined; isUnrecognizedModel: true };
 }
 
 // non-model settings

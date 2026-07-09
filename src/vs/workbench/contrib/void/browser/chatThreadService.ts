@@ -6,7 +6,7 @@
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
-import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
+
 
 import { URI } from '../../../../base/common/uri.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
@@ -14,7 +14,7 @@ import { ILLMMessageService } from '../common/sendLLMMessageService.js';
 import { chat_userMessageContent, isABuiltinToolName } from '../common/prompt/prompts.js';
 import { AnthropicReasoning, getErrorMessage, RawToolCallObj, RawToolParamsObj } from '../common/sendLLMMessageTypes.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
-import { FeatureName, ModelSelection, ModelSelectionOptions } from '../common/voidSettingsTypes.js';
+import { FeatureName, ModelSelection, ModelSelectionOptions, ChatMode } from '../common/voidSettingsTypes.js';
 import { IVoidSettingsService } from '../common/voidSettingsService.js';
 import { approvalTypeOfBuiltinToolName, AskUserQuestionItem, BuiltinToolCallParams, ToolCallParams, ToolName, ToolResult } from '../common/toolsServiceTypes.js';
 import { IToolsService } from './toolsService.js';
@@ -30,15 +30,15 @@ import { IEditCodeService } from './editCodeServiceInterface.js';
 import { VoidFileSnapshot } from '../common/editCodeServiceTypes.js';
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { truncate } from '../../../../base/common/strings.js';
-import { THREAD_STORAGE_KEY } from '../common/storageKeys.js';
 import { IConvertToLLMMessageService } from './convertToLLMMessageService.js';
-import { timeout } from '../../../../base/common/async.js';
+import { timeout, ThrottledDelayer } from '../../../../base/common/async.js';
 import { deepClone } from '../../../../base/common/objects.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { IDirectoryStrService } from '../common/directoryStrService.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IMCPService } from '../common/mcpService.js';
 import { RawMCPToolCall } from '../common/mcpServiceTypes.js';
+import { IChatThreadStorageService, ThreadData, CHAT_THREAD_STORAGE_VERSION, GLOBAL_PROJECT_ID } from '../common/chatThreadStorageService.js';
 
 
 // related to retrying when LLM message has error
@@ -118,6 +118,7 @@ export type ThreadType = {
 	id: string; // store the id here too
 	createdAt: string; // ISO string
 	lastModified: string; // ISO string
+	projectId?: string; // 项目唯一标识（项目路径），可选以兼容旧数据
 
 	messages: ChatMessage[];
 	filesWithUserChanges: Set<string>;
@@ -136,6 +137,8 @@ export type ThreadType = {
 			}
 		}
 
+		// chatMode is stored per-thread and persisted to storage
+		chatMode: ChatMode; // 当前会话的聊天模式，默认为 'agent'
 
 		mountedInfo?: {
 			whenMounted: Promise<WhenMounted>
@@ -194,6 +197,7 @@ export type ThreadStreamState = {
 			mcpServerName: string | undefined;
 		};
 		interrupt: Promise<() => void>;
+		skipWait?: Promise<() => void>; // for sleep_wait tool, to end wait early without interruption
 	} | {
 		isRunning: 'awaiting_user';
 		error?: undefined;
@@ -209,12 +213,13 @@ export type ThreadStreamState = {
 	}
 }
 
-const newThreadObject = () => {
+const newThreadObject = (projectId?: string) => {
 	const now = new Date().toISOString()
 	return {
 		id: generateUuid(),
 		createdAt: now,
 		lastModified: now,
+		projectId: projectId,
 		messages: [],
 		state: {
 			currCheckpointIdx: null,
@@ -222,6 +227,7 @@ const newThreadObject = () => {
 			stagingImages: [],
 			focusedMessageIdx: undefined,
 			linksOfMessageIdx: {},
+			chatMode: 'agent' as ChatMode, // 默认为智能体模式
 		},
 		filesWithUserChanges: new Set()
 	} satisfies ThreadType
@@ -250,12 +256,18 @@ export interface IChatThreadService {
 	deleteThread(threadId: string): void;
 	duplicateThread(threadId: string): void;
 
+	// 导入会话（从 ThreadData 创建新会话，避免 ID 冲突）
+	importThreadFromData(threadData: import('../common/chatThreadStorageService.js').ThreadData): void;
+
 	// exposed getters/setters
 	// these all apply to current thread
 	getCurrentMessageState: (messageIdx: number) => UserMessageState
 	setCurrentMessageState: (messageIdx: number, newState: Partial<UserMessageState>) => void
 	getCurrentThreadState: () => ThreadType['state']
 	setCurrentThreadState: (newState: Partial<ThreadType['state']>) => void
+
+	// 设置当前线程的聊天模式（持久化存储）
+	setCurrentThreadChatMode(chatMode: ChatMode): void;
 
 	// you can edit multiple messages - the one you're currently editing is "focused", and we add items to that one when you press cmd+L.
 	getCurrentFocusedMessageIdx(): number | undefined;
@@ -321,13 +333,15 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	readonly streamState: ThreadStreamState = {}
 	state: ThreadsState // allThreads is persisted, currentThread is not
 
+	// 防抖存储延迟器（用于延迟存储操作，减少 UI 卡顿）
+	private readonly _storeDelayer = new ThrottledDelayer<void>(500) // 500ms 防抖
+
 	// used in checkpointing
 	// private readonly _userModifiedFilesToCheckInCheckpoints = new LRUCache<string, null>(50)
 
 
 
 	constructor(
-		@IStorageService private readonly _storageService: IStorageService,
 		@IVoidModelService private readonly _voidModelService: IVoidModelService,
 		@ILLMMessageService private readonly _llmMessageService: ILLMMessageService,
 		@IToolsService private readonly _toolsService: IToolsService,
@@ -341,21 +355,43 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		@IDirectoryStrService private readonly _directoryStringService: IDirectoryStrService,
 		@IFileService private readonly _fileService: IFileService,
 		@IMCPService private readonly _mcpService: IMCPService,
+		@IChatThreadStorageService private readonly _threadStorageService: IChatThreadStorageService,
 	) {
 		super()
 		this.state = { allThreads: {}, currentThreadId: null as unknown as string } // default state
 
-		const readThreads = this._readAllThreads() || {}
-
-		const allThreads = readThreads
+		// 初始化：加载或迁移数据
+		const allThreads = this._initializeThreads()
 		this.state = {
 			allThreads: allThreads,
-			currentThreadId: null as unknown as string, // gets set in startNewThread()
+			currentThreadId: null as unknown as string, // gets set in openNewThread()
 		}
 
 		// always be in a thread
 		this.openNewThread()
 
+		// 监听工作区变化，当工作区初始化完成后，更新空会话的projectId
+		this._register(
+			this._workspaceContextService.onDidChangeWorkspaceFolders(() => {
+				console.log('[ChatThreadService] onDidChangeWorkspaceFolders triggered')
+				this._updateEmptyThreadProjectId()
+				// 工作区变化时重新加载会话列表
+				this._reloadThreadsOnWorkspaceOrSettingChange()
+			})
+		)
+
+		// 监听设置变化，当 showAllHistoryThreads 设置变化时重新加载会话列表
+		this._register(
+			this._settingsService.onDidChangeState(() => {
+				this._onSettingsChanged()
+			})
+		)
+
+		// 延迟检查一次，确保工作区已初始化
+		setTimeout(() => {
+			console.log('[ChatThreadService] delayed check for workspace')
+			this._updateEmptyThreadProjectId()
+		}, 1000)
 
 		// keep track of user-modified files
 		// const disposablesOfModelId: { [modelId: string]: IDisposable[] } = {}
@@ -435,34 +471,156 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 
 	// !!! this is important for properly restoring URIs from storage
 	// should probably re-use code from void/src/vs/base/common/marshalling.ts instead. but this is simple enough
-	private _convertThreadDataFromStorage(threadsStr: string): ChatThreads {
-		return JSON.parse(threadsStr, (key, value) => {
-			if (value && typeof value === 'object' && value.$mid === 1) { // $mid is the MarshalledId. $mid === 1 means it is a URI
-				return URI.from(value); // TODO URI.revive instead of this?
-			}
-			return value;
-		});
-	}
+	// ========== 新的存储架构 ==========
 
-	private _readAllThreads(): ChatThreads | null {
-		const threadsStr = this._storageService.get(THREAD_STORAGE_KEY, StorageScope.APPLICATION);
-		if (!threadsStr) {
-			return null
+	/**
+	 * 初始化线程数据（支持从旧版本迁移）
+	 */
+	private _initializeThreads(): ChatThreads {
+		// 检查是否需要迁移
+		if (this._threadStorageService.needsMigration()) {
+			console.log('[ChatThreadService] Migrating from version 0...')
+			const migratedData = this._threadStorageService.migrateFromVersion0()
+			return this._threadDataMapToChatThreads(migratedData)
 		}
-		const threads = this._convertThreadDataFromStorage(threadsStr);
 
-		return threads
+		// 加载当前项目的线程
+		const projectId = this._getCurrentProjectId()
+
+		// 检查是否开启了显示所有历史会话
+		const showAllHistoryThreads = this._settingsService.state.globalSettings.showAllHistoryThreads
+
+		if (showAllHistoryThreads) {
+			// 开启时：加载当前项目 + global 的会话
+			console.log('[ChatThreadService] showAllHistoryThreads enabled, loading project + global threads')
+			const visibleThreadDatas = this._threadStorageService.getVisibleThreadDatas(projectId)
+			return this._threadDataMapToChatThreads(visibleThreadDatas)
+		}
+
+		if (projectId) {
+			// 有工作区且未开启显示所有：只加载该项目的会话
+			const metadatas = this._threadStorageService.getThreadMetadatas(projectId)
+			if (metadatas.length === 0) {
+				return {}
+			}
+
+			// 加载所有线程数据
+			const threadIds = metadatas.map(m => m.id)
+			const threadDatas = this._threadStorageService.getThreadDatas(threadIds)
+
+			return this._threadDataMapToChatThreads(threadDatas)
+		} else {
+			// 无工作区：只加载 global 会话
+			console.log('[ChatThreadService] No workspace, loading global threads')
+			const globalMetadatas = this._threadStorageService.getThreadMetadatas(GLOBAL_PROJECT_ID)
+			if (globalMetadatas.length === 0) {
+				return {}
+			}
+			const threadIds = globalMetadatas.map(m => m.id)
+			const threadDatas = this._threadStorageService.getThreadDatas(threadIds)
+			return this._threadDataMapToChatThreads(threadDatas)
+		}
 	}
 
-	private _storeAllThreads(threads: ChatThreads) {
-		const serializedThreads = JSON.stringify(threads);
-		this._storageService.store(
-			THREAD_STORAGE_KEY,
-			serializedThreads,
-			StorageScope.APPLICATION,
-			StorageTarget.USER
-		);
+	/**
+	 * 将 ThreadData Map 转换为 ChatThreads
+	 */
+	private _threadDataMapToChatThreads(threadDatas: Map<string, ThreadData>): ChatThreads {
+		const result: ChatThreads = {}
+		for (const [threadId, data] of threadDatas) {
+			result[threadId] = this._threadDataToThreadType(data)
+		}
+		return result
 	}
+
+	/**
+	 * 将 ThreadData 转换为 ThreadType
+	 */
+	private _threadDataToThreadType(data: ThreadData): ThreadType {
+		return {
+			id: data.metadata.id,
+			createdAt: data.metadata.createdAt,
+			lastModified: data.metadata.lastModified,
+			projectId: data.metadata.projectId,
+			messages: data.messages,
+			filesWithUserChanges: new Set(data.filesWithUserChanges),
+			state: {
+				...data.state,
+				mountedInfo: undefined, // 运行时状态不持久化
+			},
+		}
+	}
+
+	/**
+	 * 将 ThreadType 转换为 ThreadData
+	 */
+	private _threadTypeToThreadData(thread: ThreadType): ThreadData {
+		// 计算元数据
+		const firstUserMsg = thread.messages.find(m => m.role === 'user')
+		let title: string | null = null
+		if (firstUserMsg && firstUserMsg.role === 'user') {
+			title = firstUserMsg.displayContent.slice(0, 100) || null
+		}
+
+		const messageCount = thread.messages.length
+		let lastMessageRole: 'user' | 'assistant' | 'tool' | null = null
+		if (messageCount > 0) {
+			const lastMsg = thread.messages[messageCount - 1]
+			if (lastMsg.role === 'user' || lastMsg.role === 'assistant' || lastMsg.role === 'tool') {
+				lastMessageRole = lastMsg.role
+			}
+		}
+
+		const hasError = thread.messages.some(m =>
+			m.role === 'tool' && (m.type === 'tool_error' || m.type === 'invalid_params')
+		)
+
+		return {
+			version: CHAT_THREAD_STORAGE_VERSION,
+			metadata: {
+				id: thread.id,
+				createdAt: thread.createdAt,
+				lastModified: thread.lastModified,
+				projectId: thread.projectId || GLOBAL_PROJECT_ID,
+				title,
+				messageCount,
+				lastMessageRole,
+				chatMode: thread.state.chatMode,
+				hasError,
+				isStreaming: false,
+				reserved1: null,
+				reserved2: null,
+			},
+			messages: thread.messages,
+			state: {
+				currCheckpointIdx: thread.state.currCheckpointIdx,
+				stagingSelections: thread.state.stagingSelections,
+				stagingImages: thread.state.stagingImages,
+				focusedMessageIdx: thread.state.focusedMessageIdx,
+				linksOfMessageIdx: thread.state.linksOfMessageIdx,
+				chatMode: thread.state.chatMode,
+			},
+			filesWithUserChanges: Array.from(thread.filesWithUserChanges),
+		}
+	}
+
+	/**
+	 * 保存单个线程（增量更新）
+	 */
+	private _storeThread(thread: ThreadType): void {
+		const data = this._threadTypeToThreadData(thread)
+		this._threadStorageService.saveThreadData(data)
+	}
+
+	/**
+	 * 删除单个线程
+	 */
+	private _deleteThreadFromStorage(threadId: string, projectId: string): void {
+		this._threadStorageService.deleteThreadData(threadId)
+		this._threadStorageService.deleteThreadMetadata(threadId, projectId)
+	}
+
+
 
 
 	// this should be the only place this.state = ... appears besides constructor
@@ -529,7 +687,89 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 
 	// ---------- streaming ----------
 
+	private _getCurrentProjectId(): string | undefined {
+		const workspace = this._workspaceContextService.getWorkspace()
+		console.log('[ChatThreadService] _getCurrentProjectId - workspace:', workspace)
+		console.log('[ChatThreadService] _getCurrentProjectId - folders:', workspace.folders)
+		if (workspace.folders.length > 0) {
+			const projectId = workspace.folders[0].uri.fsPath
+			console.log('[ChatThreadService] _getCurrentProjectId - returning:', projectId)
+			return projectId
+		}
+		console.log('[ChatThreadService] _getCurrentProjectId - no folders, returning undefined')
+		return undefined
+	}
 
+	/**
+	 * 更新空会话的projectId（用于处理初始化时workspace未就绪的情况）
+	 */
+	private _updateEmptyThreadProjectId(): void {
+		const currentProjectId = this._getCurrentProjectId()
+		if (!currentProjectId) {
+			console.log('[ChatThreadService] _updateEmptyThreadProjectId - no currentProjectId, skipping')
+			return
+		}
+
+		const { allThreads: currentThreads, currentThreadId } = this.state
+		const currentThread = currentThreadId ? currentThreads[currentThreadId] : null
+
+		// 如果当前会话是空的且projectId是GLOBAL_PROJECT_ID（或没有projectId），更新为实际项目
+		if (currentThread && currentThread.messages.length === 0 &&
+			(!currentThread.projectId || currentThread.projectId === GLOBAL_PROJECT_ID)) {
+			console.log('[ChatThreadService] _updateEmptyThreadProjectId - updating current empty thread with projectId:', currentProjectId)
+			const updatedThread = { ...currentThread, projectId: currentProjectId }
+			const newThreads = { ...currentThreads, [currentThreadId]: updatedThread }
+			this._storeThread(updatedThread)
+			this._threadStorageService.flush()
+			this._setState({ allThreads: newThreads })
+		}
+	}
+
+	/**
+	 * 处理设置变化
+	 */
+	private _lastShowAllHistoryThreads: boolean | undefined = undefined
+	private _onSettingsChanged(): void {
+		const showAllHistoryThreads = this._settingsService.state.globalSettings.showAllHistoryThreads
+
+		// 只在 showAllHistoryThreads 设置变化时重新加载
+		if (this._lastShowAllHistoryThreads !== showAllHistoryThreads) {
+			this._lastShowAllHistoryThreads = showAllHistoryThreads
+			this._reloadThreadsOnWorkspaceOrSettingChange()
+		}
+	}
+
+	/**
+	 * 工作区或设置变化时重新加载会话列表
+	 */
+	private _reloadThreadsOnWorkspaceOrSettingChange(): void {
+		const showAllHistoryThreads = this._settingsService.state.globalSettings.showAllHistoryThreads
+		const projectId = this._getCurrentProjectId()
+
+		if (showAllHistoryThreads) {
+			// 开启时：加载当前项目 + global 的会话
+			console.log('[ChatThreadService] Reloading project + global threads')
+			const visibleThreadDatas = this._threadStorageService.getVisibleThreadDatas(projectId)
+			const newThreads = this._threadDataMapToChatThreads(visibleThreadDatas)
+			this._setState({ allThreads: newThreads })
+		} else if (projectId) {
+			// 未开启且有工作区：只加载当前项目的会话
+			console.log('[ChatThreadService] Reloading project threads:', projectId)
+			const metadatas = this._threadStorageService.getThreadMetadatas(projectId)
+			const threadIds = metadatas.map(m => m.id)
+			const threadDatas = this._threadStorageService.getThreadDatas(threadIds)
+			const newThreads = this._threadDataMapToChatThreads(threadDatas)
+			this._setState({ allThreads: newThreads })
+		} else {
+			// 未开启且无工作区：只加载 global 会话
+			console.log('[ChatThreadService] Reloading global threads')
+			const globalMetadatas = this._threadStorageService.getThreadMetadatas(GLOBAL_PROJECT_ID)
+			const threadIds = globalMetadatas.map(m => m.id)
+			const threadDatas = this._threadStorageService.getThreadDatas(threadIds)
+			const newThreads = this._threadDataMapToChatThreads(threadDatas)
+			this._setState({ allThreads: newThreads })
+		}
+	}
 
 	private _currentModelSelectionProps = () => {
 		// these settings should not change throughout the loop (eg anthropic breaks if you change its thinking mode and it's using tools)
@@ -626,7 +866,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		// add assistant message
 		if (this.streamState[threadId]?.isRunning === 'LLM') {
 			const { displayContentSoFar, reasoningSoFar, toolCallSoFar } = this.streamState[threadId].llmInfo
-			this._addMessageToThread(threadId, { role: 'assistant', displayContent: displayContentSoFar, reasoning: reasoningSoFar, anthropicReasoning: null, toolCalls: toolCallSoFar ? [toolCallSoFar] : null, rawLLMContent: null, modelName: null, startTime: null, endTime: null })
+			this._addMessageToThread(threadId, { role: 'assistant', displayContent: displayContentSoFar, reasoning: reasoningSoFar, anthropicReasoning: null, toolCalls: toolCallSoFar ? [toolCallSoFar] : null, rawLLMContent: null, modelName: null, startTime: null, endTime: null, createdAt: Date.now() })
 			if (toolCallSoFar) this._addMessageToThread(threadId, { role: 'interrupted_streaming_tool', name: toolCallSoFar.name, mcpServerName: this._computeMCPServerOfToolName(toolCallSoFar.name) })
 		}
 		// add tool that's running
@@ -736,15 +976,23 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		let interrupted = false
 		let resolveInterruptor: (r: () => void) => void = () => { }
 		const interruptorPromise = new Promise<() => void>(res => { resolveInterruptor = res })
+		let skipWaitPromise: Promise<() => void> | undefined
+		let resolveSkipWait: (r: () => void) => void = () => { }
+		if (toolName === 'sleep_wait') {
+			skipWaitPromise = new Promise<() => void>(res => { resolveSkipWait = res })
+		}
 		try {
 
 			// set stream state
-			this._setStreamState(threadId, { isRunning: 'tool', interrupt: interruptorPromise, toolInfo: { toolName, toolParams, id: toolId, content: 'interrupted...', rawParams: opts.unvalidatedToolParams, mcpServerName } })
+			this._setStreamState(threadId, { isRunning: 'tool', interrupt: interruptorPromise, skipWait: skipWaitPromise, toolInfo: { toolName, toolParams, id: toolId, content: 'interrupted...', rawParams: opts.unvalidatedToolParams, mcpServerName } })
 
 			if (isBuiltInTool) {
-				const { result, interruptTool } = await this._toolsService.callTool[toolName](toolParams as any)
+				const { result, interruptTool, skipWait } = await this._toolsService.callTool[toolName](toolParams as any)
 				const interruptor = () => { interrupted = true; interruptTool?.() }
 				resolveInterruptor(interruptor)
+				if (skipWait) {
+					resolveSkipWait(skipWait)
+				}
 
 				toolResult = await result
 			}
@@ -769,6 +1017,10 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 			if (interrupted) { return { interrupted: true } } // the tool result is added where we interrupt, not here
 
 			const errorMessage = getErrorMessage(error)
+			// 如果是用户中断导致的错误，不添加错误消息（abortRunning 已经处理了）
+			if (errorMessage.includes('interrupted by the user')) {
+				return { interrupted: true }
+			}
 			this._updateLatestTool(threadId, { role: 'tool', type: 'tool_error', params: toolParams, result: errorMessage, name: toolName, content: errorMessage, id: toolId, rawParams: opts.unvalidatedToolParams, mcpServerName })
 			return {}
 		}
@@ -815,7 +1067,9 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		// _runToolCall does not need setStreamState({idle}) before it, but it needs it after it. (handles its own setStreamState)
 
 		// above just defines helpers, below starts the actual function
-		const { chatMode } = this._settingsService.state.globalSettings // should not change as we loop even if user changes it, so it goes here
+		// 从线程状态读取 chatMode，而不是从全局设置
+		const thread = this.state.allThreads[threadId]
+		const chatMode = thread?.state?.chatMode ?? 'agent' // 默认为 agent 模式
 		const { overridesOfModel } = this._settingsService.state
 
 		let nMessagesSent = 0
@@ -978,7 +1232,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 					else {
 						const { error, startTime, endTime } = llmRes
 						const { displayContentSoFar, reasoningSoFar, toolCallSoFar } = this.streamState[threadId].llmInfo
-						this._addMessageToThread(threadId, { role: 'assistant', displayContent: displayContentSoFar, reasoning: reasoningSoFar, anthropicReasoning: null, toolCalls: toolCallSoFar ? [toolCallSoFar] : null, rawLLMContent: null, modelName: null, startTime, endTime })
+						this._addMessageToThread(threadId, { role: 'assistant', displayContent: displayContentSoFar, reasoning: reasoningSoFar, anthropicReasoning: null, toolCalls: toolCallSoFar ? [toolCallSoFar] : null, rawLLMContent: null, modelName: null, startTime, endTime, createdAt: Date.now() })
 						if (toolCallSoFar) this._addMessageToThread(threadId, { role: 'interrupted_streaming_tool', name: toolCallSoFar.name, mcpServerName: this._computeMCPServerOfToolName(toolCallSoFar.name) })
 
 						this._setStreamState(threadId, { isRunning: undefined, error })
@@ -990,7 +1244,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 				// llm res success
 				const { toolCall, info, startTime, endTime } = llmRes
 
-				this._addMessageToThread(threadId, { role: 'assistant', displayContent: info.fullText, reasoning: info.fullReasoning, anthropicReasoning: info.anthropicReasoning, toolCalls: toolCall ? [toolCall] : null, rawLLMContent: null, modelName: info.modelName ?? null, startTime, endTime })
+				this._addMessageToThread(threadId, { role: 'assistant', displayContent: info.fullText, reasoning: info.fullReasoning, anthropicReasoning: info.anthropicReasoning, toolCalls: toolCall ? [toolCall] : null, rawLLMContent: null, modelName: info.modelName ?? null, startTime, endTime, createdAt: Date.now() })
 
 				// Add system message to display onFinalMessage debug info 这里不需要了暂时
 				// const finalMessageDebugInfo = {
@@ -1064,20 +1318,33 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		const { allThreads } = this.state
 		const oldThread = allThreads[threadId]
 		if (!oldThread) return // should never happen
-		// update state and store it
-		const newThreads = {
-			...allThreads,
-			[oldThread.id]: {
-				...oldThread,
-				lastModified: new Date().toISOString(),
-				messages: [
-					...oldThread.messages.slice(0, messageIdx),
-					newMessage,
-					...oldThread.messages.slice(messageIdx + 1, Infinity),
-				],
+
+		// 获取当前 projectId，如果会话没有 projectId 则更新
+		let updatedProjectId = oldThread.projectId
+		if (!updatedProjectId) {
+			const currentProjectId = this._getCurrentProjectId()
+			if (currentProjectId) {
+				updatedProjectId = currentProjectId
 			}
 		}
-		this._storeAllThreads(newThreads)
+
+		// update state and store it
+		const updatedThread = {
+			...oldThread,
+			lastModified: new Date().toISOString(),
+			projectId: updatedProjectId,
+			messages: [
+				...oldThread.messages.slice(0, messageIdx),
+				newMessage,
+				...oldThread.messages.slice(messageIdx + 1, Infinity),
+			],
+		}
+		const newThreads = {
+			...allThreads,
+			[oldThread.id]: updatedThread,
+		}
+		this._storeThread(updatedThread)
+		this._threadStorageService.flush()
 		this._setState({ allThreads: newThreads }) // the current thread just changed (it had a message added to it)
 	}
 
@@ -1435,7 +1702,7 @@ We only need to do it for files that were edited since `from`, ie files between 
 
 
 		const userMessageContent = await chat_userMessageContent(instructions, currSelns, { directoryStrService: this._directoryStringService, fileService: this._fileService }) // user message + names of files (NOT content)
-		const userHistoryElt: ChatMessage = { role: 'user', content: userMessageContent, displayContent: instructions, selections: currSelns, images: currImages.length > 0 ? currImages : null, state: defaultMessageState }
+		const userHistoryElt: ChatMessage = { role: 'user', content: userMessageContent, displayContent: instructions, selections: currSelns, images: currImages.length > 0 ? currImages : null, state: defaultMessageState, createdAt: Date.now() }
 		this._addMessageToThread(threadId, userHistoryElt)
 
 		// Clear staging images after adding to message
@@ -1462,19 +1729,21 @@ We only need to do it for files that were edited since `from`, ie files between 
 			const newMessages = thread.messages.slice(0, checkpointIdx + 1);
 
 			// Update the thread with truncated messages and reset currCheckpointIdx
-			const newThreads = {
-				...this.state.allThreads,
-				[threadId]: {
-					...thread,
-					lastModified: new Date().toISOString(),
-					messages: newMessages,
-					state: {
-						...thread.state,
-						currCheckpointIdx: null, // Reset checkpoint index after truncation
-					}
+			const updatedThread = {
+				...thread,
+				lastModified: new Date().toISOString(),
+				messages: newMessages,
+				state: {
+					...thread.state,
+					currCheckpointIdx: null, // Reset checkpoint index after truncation
 				}
 			};
-			this._storeAllThreads(newThreads);
+			const newThreads = {
+				...this.state.allThreads,
+				[threadId]: updatedThread
+			};
+			this._storeThread(updatedThread);
+			this._threadStorageService.flush();
 			this._setState({ allThreads: newThreads });
 		}
 
@@ -1818,35 +2087,43 @@ We only need to do it for files that were edited since `from`, ie files between 
 	openNewThread() {
 		// if a thread with 0 messages already exists, switch to it
 		const { allThreads: currentThreads } = this.state
+		const currentProjectId = this._getCurrentProjectId() || GLOBAL_PROJECT_ID
+
 		for (const threadId in currentThreads) {
-			if (currentThreads[threadId]!.messages.length === 0) {
-				// switch to the existing empty thread and exit
-				this.switchToThread(threadId)
-				return
+			const thread = currentThreads[threadId]
+			if (thread!.messages.length === 0) {
+				// 兼容旧数据：如果没有projectId或者projectId匹配当前项目，则切换
+				if (!thread!.projectId || thread!.projectId === currentProjectId) {
+					this.switchToThread(threadId)
+					return
+				}
 			}
 		}
 		// otherwise, start a new thread
-		const newThread = newThreadObject()
+		const newThread = newThreadObject(currentProjectId)
 
 		// update state
 		const newThreads: ChatThreads = {
 			...currentThreads,
 			[newThread.id]: newThread
 		}
-		this._storeAllThreads(newThreads)
+		this._storeThread(newThread)
+		this._threadStorageService.flush()
 		this._setState({ allThreads: newThreads, currentThreadId: newThread.id })
 	}
 
 
 	deleteThread(threadId: string): void {
 		const { allThreads: currentThreads } = this.state
+		const thread = currentThreads[threadId]
+		if (!thread) return
 
-		// delete the thread
-		const newThreads = { ...currentThreads };
-		delete newThreads[threadId];
+		// delete from storage
+		this._deleteThreadFromStorage(threadId, thread.projectId || GLOBAL_PROJECT_ID)
 
-		// store the updated threads
-		this._storeAllThreads(newThreads);
+		// delete from memory
+		const newThreads = { ...currentThreads }
+		delete newThreads[threadId]
 		this._setState({ ...this.state, allThreads: newThreads })
 	}
 
@@ -1862,8 +2139,45 @@ We only need to do it for files that were edited since `from`, ie files between 
 			...currentThreads,
 			[newThread.id]: newThread,
 		}
-		this._storeAllThreads(newThreads)
+		this._storeThread(newThread)
+		this._threadStorageService.flush()
 		this._setState({ allThreads: newThreads })
+	}
+
+	importThreadFromData(threadData: import('../common/chatThreadStorageService.js').ThreadData) {
+		const { allThreads: currentThreads } = this.state
+		const currentProjectId = this._getCurrentProjectId() || GLOBAL_PROJECT_ID
+
+		// 生成新的 ID，避免冲突
+		const newId = generateUuid()
+		const now = new Date().toISOString()
+
+		// 创建新的 ThreadType
+		const newThread: ThreadType = {
+			id: newId,
+			createdAt: threadData.metadata.createdAt || now,
+			lastModified: now,
+			projectId: currentProjectId,
+			messages: threadData.messages,
+			filesWithUserChanges: new Set(threadData.filesWithUserChanges || []),
+			state: {
+				currCheckpointIdx: threadData.state.currCheckpointIdx ?? null,
+				stagingSelections: threadData.state.stagingSelections || [],
+				stagingImages: threadData.state.stagingImages || [],
+				focusedMessageIdx: threadData.state.focusedMessageIdx,
+				linksOfMessageIdx: threadData.state.linksOfMessageIdx || {},
+				chatMode: threadData.state.chatMode || 'agent',
+			},
+		}
+
+		// 添加到状态并保存
+		const newThreads = {
+			...currentThreads,
+			[newId]: newThread,
+		}
+		this._storeThread(newThread)
+		this._threadStorageService.flush()
+		this._setState({ allThreads: newThreads, currentThreadId: newId })
 	}
 
 
@@ -1871,19 +2185,32 @@ We only need to do it for files that were edited since `from`, ie files between 
 		const { allThreads } = this.state
 		const oldThread = allThreads[threadId]
 		if (!oldThread) return // should never happen
-		// update state and store it
-		const newThreads = {
-			...allThreads,
-			[oldThread.id]: {
-				...oldThread,
-				lastModified: new Date().toISOString(),
-				messages: [
-					...oldThread.messages,
-					message
-				],
+
+		// 获取当前 projectId，如果会话没有 projectId 则更新
+		let updatedProjectId = oldThread.projectId
+		if (!updatedProjectId) {
+			const currentProjectId = this._getCurrentProjectId()
+			if (currentProjectId) {
+				updatedProjectId = currentProjectId
 			}
 		}
-		this._storeAllThreads(newThreads)
+
+		// update state and store it
+		const updatedThread = {
+			...oldThread,
+			lastModified: new Date().toISOString(),
+			projectId: updatedProjectId,
+			messages: [
+				...oldThread.messages,
+				message
+			],
+		}
+		const newThreads = {
+			...allThreads,
+			[oldThread.id]: updatedThread,
+		}
+		this._storeThread(updatedThread)
+		this._threadStorageService.flush()
 		this._setState({ allThreads: newThreads }) // the current thread just changed (it had a message added to it)
 	}
 
@@ -2052,6 +2379,33 @@ We only need to do it for files that were edited since `from`, ie files between 
 	}
 	setCurrentThreadState = (newState: Partial<ThreadType['state']>) => {
 		this._setThreadState(this.state.currentThreadId, newState)
+	}
+
+	setCurrentThreadChatMode = (chatMode: ChatMode): void => {
+		const threadId = this.state.currentThreadId
+		const thread = this.state.allThreads[threadId]
+		if (!thread) return
+
+		// 更新内存状态（不刷新 mountedInfo，减少不必要的开销）
+		this._setThreadState(threadId, { chatMode }, true)
+
+		// 延迟持久化存储（防抖，减少 UI 卡顿）
+		this._debouncedStore()
+	}
+
+	/**
+	 * 延迟存储（防抖），减少频繁写入存储导致的 UI 卡顿
+	 */
+	private _debouncedStore(): void {
+		this._storeDelayer.trigger(() => {
+			const threadId = this.state.currentThreadId
+			const thread = this.state.allThreads[threadId]
+			if (thread) {
+				this._storeThread(thread)
+				this._threadStorageService.flush()
+			}
+			return Promise.resolve()
+		})
 	}
 
 	// gets `staging` and `setStaging` of the currently focused element, given the index of the currently selected message (or undefined if no message is selected)

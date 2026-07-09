@@ -20,11 +20,7 @@ export class CachedPublicClientApplication implements ICachedPublicClientApplica
 	private readonly _disposable: Disposable;
 
 	// Cache properties
-	private readonly _secretStorageCachePlugin = new SecretStorageCachePlugin(
-		this._secretStorage,
-		// Include the prefix as a differentiator to other secrets
-		`pca:${this._clientId}`
-	);
+	private readonly _secretStorageCachePlugin: SecretStorageCachePlugin;
 
 	// Broker properties
 	private readonly _isBrokerAvailable: boolean;
@@ -45,6 +41,12 @@ export class CachedPublicClientApplication implements ICachedPublicClientApplica
 		private readonly _accountAccess: IAccountAccess,
 		private readonly _logger: LogOutputChannel,
 	) {
+		this._secretStorageCachePlugin = new SecretStorageCachePlugin(
+			this._secretStorage,
+			// Include the prefix as a differentiator to other secrets
+			`pca:${this._clientId}`
+		);
+
 		const loggerOptions = new MsalLoggerOptions(_logger);
 		const nativeBrokerPlugin = new NativeBrokerPlugin();
 		this._isBrokerAvailable = nativeBrokerPlugin.isBrokerAvailable;

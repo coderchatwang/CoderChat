@@ -21,6 +21,7 @@ import { IMCPService } from '../common/mcpService.js';
 import { ISCMService } from '../../scm/common/scm.js';
 import { INativeWorkbenchEnvironmentService } from '../../../services/environment/electron-sandbox/environmentService.js';
 import { IVoidSCMService } from '../common/voidSCMTypes.js';
+import { ISkillService } from '../common/skillService.js';
 
 export const EMPTY_MESSAGE = '(empty message)'
 
@@ -366,9 +367,9 @@ const prepareOpenAIOrAnthropicMessages = ({
 	const sysMsgParts: string[] = []
 	if (systemMessage) sysMsgParts.push(systemMessage)
 	if (aiInstructions) sysMsgParts.push(`
---- Context from user's .voidrules file ---\n
+--- Context from user's AGENTS.md file ---\n
 ${aiInstructions}
---- End of Context from user's .voidrules file ---
+--- End of Context from user's AGENTS.md file ---
 	`)
 	const combinedSystemMessage = sysMsgParts.join('\n\n')
 
@@ -646,6 +647,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		@ISCMService private readonly scmService: ISCMService,
 		@INativeWorkbenchEnvironmentService private readonly environmentService: INativeWorkbenchEnvironmentService,
 		@IVoidSCMService private readonly voidSCMService: IVoidSCMService,
+		@ISkillService private readonly skillService: ISkillService,
 	) {
 		super()
 	}
@@ -668,14 +670,36 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		}
 	}
 
-	// Get combined AI instructions from settings and .voidrules files
+	// Read AGENTS.md files from workspace folders
+	private _getAgentsMdFileContents(): string {
+		try {
+			const workspaceFolders = this.workspaceContextService.getWorkspace().folders;
+			let agentsMd = '';
+			for (const folder of workspaceFolders) {
+				const uri = URI.joinPath(folder.uri, 'AGENTS.md')
+				const { model } = this.voidModelService.getModel(uri)
+				if (!model) continue
+				agentsMd += model.getValue(EndOfLinePreference.LF) + '\n\n';
+			}
+			return agentsMd.trim();
+		}
+		catch (e) {
+			return ''
+		}
+	}
+
+	// Get combined AI instructions from settings and .voidrules/AGENTS.md files
 	private _getCombinedAIInstructions(): string {
+		const responseLanguagePrompt = this.voidSettingsService.state.globalSettings.responseLanguagePrompt;
 		const globalAIInstructions = this.voidSettingsService.state.globalSettings.aiInstructions;
 		const voidRulesFileContent = this._getVoidRulesFileContents();
+		const agentsMdFileContent = this._getAgentsMdFileContents();
 
 		const ans: string[] = []
+		if (responseLanguagePrompt) ans.push(responseLanguagePrompt)  // 语言提示词放在最前面
 		if (globalAIInstructions) ans.push(globalAIInstructions)
 		if (voidRulesFileContent) ans.push(voidRulesFileContent)
+		if (agentsMdFileContent) ans.push(agentsMdFileContent)  // AGENTS.md 放在 .voidrules 下方
 		return ans.join('\n\n')
 	}
 
@@ -733,7 +757,13 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			}
 		}
 
-		const systemMessage = chat_systemMessage({ workspaceFolders, openedURIs, directoryStr, activeURI, persistentTerminalIDs, chatMode, mcpTools, includeXMLToolDefinitions, platform: platformStr, osVersion, isGitRepository, gitRemoteUrl, gitHeadSha, gitStatus })
+		// Wait for skill service to initialize and get available skills
+		await this.skillService.waitForInit()
+		const skills = this.skillService.getSkills()
+		console.log('[ConvertToLLMMessage] Skills for system message:', skills?.length, skills?.map(s => s.name))
+		console.log('[ConvertToLLMMessage] includeXMLToolDefinitions:', includeXMLToolDefinitions, 'specialToolFormat:', specialToolFormat)
+
+		const systemMessage = chat_systemMessage({ workspaceFolders, openedURIs, directoryStr, activeURI, persistentTerminalIDs, chatMode, mcpTools, includeXMLToolDefinitions, platform: platformStr, osVersion, isGitRepository, gitRemoteUrl, gitHeadSha, gitStatus, skills })
 		return systemMessage
 	}
 
@@ -841,9 +871,9 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		const sysMsgParts: string[] = []
 		if (systemMessage) sysMsgParts.push(systemMessage)
 		if (aiInstructions) sysMsgParts.push(`
---- Context from user's .voidrules file ---\n
+--- Context from user's .voidrules/AGENTS.md file ---\n
 ${aiInstructions}
---- End of Context from user's .voidrules file ---`)
+--- End of Context from user's .voidrules/AGENTS.md file ---`)
 		const combinedSystemMessage = sysMsgParts.join('\n\n')
 
 		const { messages, separateSystemMessage } = prepareMessages({

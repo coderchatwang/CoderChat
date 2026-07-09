@@ -5,29 +5,42 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useAccessor, useIsDark, useSettingsState } from '../util/services.js';
-import { Brain, Check, ChevronRight, DollarSign, ExternalLink, Lock, X } from 'lucide-react';
-import { displayInfoOfProviderName, ProviderName, providerNames, localProviderNames, featureNames, FeatureName, isFeatureNameDisabled } from '../../../../common/voidSettingsTypes.js';
+import { getVoidThemeDataProvider } from '../../../themeDataProvider.js';
+import { Brain, Check, ChevronRight, ChevronDown, ChevronUp, DollarSign, ExternalLink, Lock, X } from 'lucide-react';
+import { displayInfoOfProviderName, ProviderName, providerNames, localProviderNames, featureNames, FeatureName, isFeatureNameDisabled, ResponseLanguage, defaultResponseLanguagePromptOfLanguage, compatibleApiProviderNames } from '../../../../common/voidSettingsTypes.js';
 import { ChatMarkdownRender } from '../markdown/ChatMarkdownRender.js';
 import { OllamaSetupInstructions, OneClickSwitchButton, SettingsForProvider, ModelDump } from '../void-settings-tsx/Settings.js';
-import { ColorScheme } from '../../../../../../../platform/theme/common/theme.js';
+
 import ErrorBoundary from '../sidebar-tsx/ErrorBoundary.js';
 import { isLinux } from '../../../../../../../base/common/platform.js';
+import { VoidCustomDropdownBox } from '../util/inputs.js';
+import { useVoidChatI18n } from '../util/i18n.js';
 
 const OVERRIDE_VALUE = false
 
 export const VoidOnboarding = () => {
 
 	const voidSettingsState = useSettingsState()
-	const isOnboardingComplete = voidSettingsState.globalSettings.isOnboardingComplete || OVERRIDE_VALUE
-
 	const isDark = useIsDark()
 
+	// 安全检查：确保 settings 已加载
+	if (!voidSettingsState?.globalSettings) {
+		return null
+	}
+
+	const isOnboardingComplete = voidSettingsState.globalSettings.isOnboardingComplete || OVERRIDE_VALUE
+
+	// 如果 onboarding 完成，完全不渲染（避免覆盖层导致的潜在问题）
+	if (isOnboardingComplete) {
+		return null
+	}
+
 	return (
-		<div className={`@@void-scope ${isDark ? 'dark' : ''}`}>
+		<div className={`@@void-scope ${isDark ? 'void-dark' : ''}`}>
 			<div
 				className={`
 					bg-void-bg-3 fixed top-0 right-0 bottom-0 left-0 width-full z-[99999]
-					transition-all duration-1000 ${isOnboardingComplete ? 'opacity-0 pointer-events-none' : 'opacity-100 pointer-events-auto'}
+					transition-all duration-1000 opacity-100 pointer-events-auto
 				`}
 				style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
 			>
@@ -40,25 +53,30 @@ export const VoidOnboarding = () => {
 }
 
 const VoidIcon = () => {
-	const accessor = useAccessor()
-	const themeService = accessor.get('IThemeService')
-
 	const divRef = useRef<HTMLDivElement | null>(null)
 
 	useEffect(() => {
-		// void icon style
+		// void icon style - 使用 VoidThemeDataProvider（VSCode 风格）
 		const updateTheme = () => {
-			const theme = themeService.getColorTheme().type
-			const isDark = theme === ColorScheme.DARK || theme === ColorScheme.HIGH_CONTRAST_DARK
+			const themeDataProvider = getVoidThemeDataProvider()
+			if (!themeDataProvider) return
+
+			const isDark = themeDataProvider.isDark()
 			if (divRef.current) {
 				divRef.current.style.maxWidth = '220px'
 				divRef.current.style.opacity = '50%'
 				divRef.current.style.filter = isDark ? '' : 'invert(1)' //brightness(.5)
 			}
 		}
+
+		// 立即更新一次
 		updateTheme()
-		const d = themeService.onDidColorThemeChange(updateTheme)
-		return () => d.dispose()
+
+		// 监听主题变化
+		const themeDataProvider = getVoidThemeDataProvider()
+		const disposable = themeDataProvider?.onThemeChanged(updateTheme)
+
+		return () => disposable?.dispose()
 	}, [])
 
 	return <div ref={divRef} className='@@void-void-icon' />
@@ -95,22 +113,24 @@ const FadeIn = ({ children, className, delayMs = 0, durationMs, ...props }: { ch
 //  New AddProvidersPage Component and helpers
 // =============================================
 
-const tabNames = ['Free', 'Paid', 'Local'] as const;
+const tabNames = ['API', 'Free', 'Paid', 'Local'] as const;
 
 type TabName = typeof tabNames[number] | 'Cloud/Other';
 
-// Data for cloud providers tab
-const cloudProviders: ProviderName[] = ['googleVertex', 'liteLLM', 'microsoftAzure', 'awsBedrock', 'openAICompatible', 'openAICompatible2', 'openAICompatible3', 'openAICompatible4', 'openAICompatible5', 'openAICompatible6', 'openAICompatible7', 'openAICompatible8', 'openAICompatible9'];
+// Data for cloud providers tab (excluding openAICompatible series - moved to API tab)
+const cloudProviders: ProviderName[] = ['googleVertex', 'liteLLM', 'microsoftAzure', 'awsBedrock'];
 
 // Data structures for provider tabs
 const providerNamesOfTab: Record<TabName, ProviderName[]> = {
+	API: compatibleApiProviderNames,
 	Free: ['gemini', 'openRouter'],
 	Local: localProviderNames,
-	Paid: providerNames.filter(pn => !(['gemini', 'openRouter', ...localProviderNames, ...cloudProviders] as string[]).includes(pn)) as ProviderName[],
+	Paid: providerNames.filter(pn => !(['gemini', 'openRouter', ...localProviderNames, ...cloudProviders, ...compatibleApiProviderNames] as string[]).includes(pn)) as ProviderName[],
 	'Cloud/Other': cloudProviders,
 };
 
 const descriptionOfTab: Record<TabName, string> = {
+	API: `Connect to any OpenAI-compatible API endpoint. Perfect for custom deployments and coding-specific models.`,
 	Free: `Providers with a 100% free tier. Add as many as you'd like!`,
 	Paid: `Connect directly with any provider (bring your own key).`,
 	Local: `Active providers should appear automatically. Add as many as you'd like! `,
@@ -127,9 +147,19 @@ const featureNameMap: { display: string, featureName: FeatureName }[] = [
 ];
 
 const AddProvidersPage = ({ pageIndex, setPageIndex }: { pageIndex: number, setPageIndex: (index: number) => void }) => {
-	const [currentTab, setCurrentTab] = useState<TabName>('Free');
+	const t = useVoidChatI18n();
+	const [currentTab, setCurrentTab] = useState<TabName>('API');
 	const settingsState = useSettingsState();
 	const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+	// 折叠状态，用于 API Tab
+	const [isApiExpanded, setIsApiExpanded] = useState(false);
+
+	// 默认展示前 2 个 provider，其余折叠
+	const apiVisibleCount = 2;
+	const apiVisibleProviders = compatibleApiProviderNames.slice(0, apiVisibleCount);
+	const apiHiddenProviders = compatibleApiProviderNames.slice(apiVisibleCount);
+	const apiHiddenCount = apiHiddenProviders.length;
 
 	// Clear error message after 5 seconds
 	useEffect(() => {
@@ -200,36 +230,81 @@ const AddProvidersPage = ({ pageIndex, setPageIndex }: { pageIndex: number, setP
 				<div className="text-sm opacity-80 text-void-fg-3 my-4 w-full">{descriptionOfTab[currentTab]}</div>
 			</div>
 
-			{providerNamesOfTab[currentTab].map((providerName) => (
-				<div key={providerName} className="w-full max-w-xl mb-10">
-					<div className="text-xl mb-2">
-						Add {displayInfoOfProviderName(providerName).title}
-						{providerName === 'gemini' && (
-							<span
-								data-tooltip-id="void-tooltip-provider-info"
-								data-tooltip-content="Gemini 2.5 Pro offers 25 free messages a day, and Gemini 2.5 Flash offers 500. We recommend using models down the line as you run out of free credits."
-								data-tooltip-place="right"
-								className="ml-1 text-xs align-top text-blue-400"
-							>*</span>
-						)}
-						{providerName === 'openRouter' && (
-							<span
-								data-tooltip-id="void-tooltip-provider-info"
-								data-tooltip-content="OpenRouter offers 50 free messages a day, and 1000 if you deposit $10. Only applies to models labeled ':free'."
-								data-tooltip-place="right"
-								className="ml-1 text-xs align-top text-blue-400"
-							>*</span>
-						)}
-					</div>
-					<div>
-						<SettingsForProvider providerName={providerName} showProviderTitle={false} showProviderSuggestions={true} />
+			{currentTab === 'API' ? (
+				<>
+					{apiVisibleProviders.map((providerName) => (
+						<div key={providerName} className="w-full max-w-xl mb-10">
+							<div className="text-xl mb-2">
+								Add {displayInfoOfProviderName(providerName).title}
+							</div>
+							<div>
+								<SettingsForProvider providerName={providerName} showProviderTitle={false} showProviderSuggestions={true} />
+							</div>
+						</div>
+					))}
 
-					</div>
-					{providerName === 'ollama' && <OllamaSetupInstructions />}
-				</div>
-			))}
+					{apiHiddenCount > 0 && (
+						<div className="w-full max-w-xl">
+							<button
+								onClick={() => setIsApiExpanded(!isApiExpanded)}
+								className="flex items-center gap-2 text-void-fg-3 hover:text-void-fg-1 cursor-pointer py-2 px-1 my-2 rounded-sm hover:bg-void-bg-2 transition-colors"
+							>
+								{isApiExpanded ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
+								<span className="text-sm">
+									{isApiExpanded
+										? t.collapseProviders(apiHiddenCount)
+										: t.expandProviders(apiHiddenCount)}
+								</span>
+							</button>
 
-			{(currentTab === 'Local' || currentTab === 'Cloud/Other') && (
+							{isApiExpanded && (
+								<div className="pl-2 border-l-2 border-void-border-2 ml-1">
+									{apiHiddenProviders.map((providerName) => (
+										<div key={providerName} className="w-full max-w-xl mb-10">
+											<div className="text-xl mb-2">
+												Add {displayInfoOfProviderName(providerName).title}
+											</div>
+											<div>
+												<SettingsForProvider providerName={providerName} showProviderTitle={false} showProviderSuggestions={true} />
+											</div>
+										</div>
+									))}
+								</div>
+							)}
+						</div>
+					)}
+				</>
+			) : (
+				providerNamesOfTab[currentTab].map((providerName) => (
+					<div key={providerName} className="w-full max-w-xl mb-10">
+						<div className="text-xl mb-2">
+							Add {displayInfoOfProviderName(providerName).title}
+							{providerName === 'gemini' && (
+								<span
+									data-tooltip-id="void-tooltip-provider-info"
+									data-tooltip-content="Gemini 2.5 Pro offers 25 free messages a day, and Gemini 2.5 Flash offers 500. We recommend using models down the line as you run out of free credits."
+									data-tooltip-place="right"
+									className="ml-1 text-xs align-top text-blue-400"
+								>*</span>
+							)}
+							{providerName === 'openRouter' && (
+								<span
+									data-tooltip-id="void-tooltip-provider-info"
+									data-tooltip-content="OpenRouter offers 50 free messages a day, and 1000 if you deposit $10. Only applies to models labeled ':free'."
+									data-tooltip-place="right"
+									className="ml-1 text-xs align-top text-blue-400"
+								>*</span>
+							)}
+						</div>
+						<div>
+							<SettingsForProvider providerName={providerName} showProviderTitle={false} showProviderSuggestions={true} />
+						</div>
+						{providerName === 'ollama' && <OllamaSetupInstructions />}
+					</div>
+				))
+			)}
+
+			{(currentTab === 'Local' || currentTab === 'Cloud/Other' || currentTab === 'API') && (
 				<div className="w-full max-w-xl mt-8 bg-void-bg-2/50 rounded-lg p-6 border border-void-border-4">
 					<div className="flex items-center gap-2 mb-4">
 						<div className="text-xl font-medium">Models</div>
@@ -241,6 +316,7 @@ const AddProvidersPage = ({ pageIndex, setPageIndex }: { pageIndex: number, setP
 
 					{currentTab === 'Local' && <ModelDump filteredProviders={localProviderNames} />}
 					{currentTab === 'Cloud/Other' && <ModelDump filteredProviders={cloudProviders} />}
+					{currentTab === 'API' && <ModelDump filteredProviders={compatibleApiProviderNames} />}
 				</div>
 			)}
 
@@ -468,7 +544,7 @@ const PrimaryActionButton = ({ children, className, ringSize, ...props }: { chil
 type WantToUseOption = 'smart' | 'private' | 'cheap' | 'all'
 
 const VoidOnboardingContent = () => {
-
+	const t = useVoidChatI18n()
 
 	const accessor = useAccessor()
 	const voidSettingsService = accessor.get('IVoidSettingsService')
@@ -634,6 +710,27 @@ const VoidOnboardingContent = () => {
 						<OneClickSwitchButton className='w-full px-4 py-2' fromEditor="VS Code" />
 						<OneClickSwitchButton className='w-full px-4 py-2' fromEditor="Cursor" />
 						<OneClickSwitchButton className='w-full px-4 py-2' fromEditor="Windsurf" />
+					</div>
+
+					{/* Language Selection Block */}
+					<div className="mt-10 text-center flex flex-col items-center gap-4 w-full max-w-md mx-auto">
+						<h4 className="text-void-fg-3 mb-2">{t.onboardingLanguageTitle()}</h4>
+						<div className='text-sm text-void-fg-3 mb-4 opacity-80'>{t.onboardingLanguageDesc()}</div>
+						<ErrorBoundary>
+							<VoidCustomDropdownBox
+								className='w-full max-w-48 px-4 py-2 bg-black/10 dark:bg-white/10 rounded-sm'
+								options={['auto', 'zh', 'en', 'ja', 'ko', 'fr', 'de', 'es', 'ru', 'pt'] as ResponseLanguage[]}
+								selectedOption={voidSettingsState.globalSettings.responseLanguage}
+								onChangeOption={(newVal) => {
+									voidSettingsService.setGlobalSetting('responseLanguage', newVal)
+									voidSettingsService.setGlobalSetting('responseLanguagePrompt', defaultResponseLanguagePromptOfLanguage[newVal])
+								}}
+								getOptionDisplayName={(val) => val === 'auto' ? t.responseLanguageAuto() : val === 'zh' ? t.responseLanguageZh() : val === 'en' ? t.responseLanguageEn() : val === 'ja' ? t.responseLanguageJa() : val === 'ko' ? t.responseLanguageKo() : val === 'fr' ? t.responseLanguageFr() : val === 'de' ? t.responseLanguageDe() : val === 'es' ? t.responseLanguageEs() : val === 'ru' ? t.responseLanguageRu() : t.responseLanguagePt()}
+								getOptionDropdownName={(val) => val === 'auto' ? t.responseLanguageAuto() : val === 'zh' ? t.responseLanguageZh() : val === 'en' ? t.responseLanguageEn() : val === 'ja' ? t.responseLanguageJa() : val === 'ko' ? t.responseLanguageKo() : val === 'fr' ? t.responseLanguageFr() : val === 'de' ? t.responseLanguageDe() : val === 'es' ? t.responseLanguageEs() : val === 'ru' ? t.responseLanguageRu() : t.responseLanguagePt()}
+								getOptionsEqual={(a, b) => a === b}
+								arrowTouchesText={false}
+							/>
+						</ErrorBoundary>
 					</div>
 				</div>
 			}

@@ -11,15 +11,15 @@ echo ""
 echo "[1/3] Verifying Node.js version..."
 NODE_VERSION=$(node --version 2>/dev/null)
 if [[ $? -ne 0 ]]; then
-    echo "Error: Node.js not found. Please install Node.js v20.18.2 via 'sudo n 20.18.2'"
+    echo "Error: Node.js not found. Please install Node.js v22.18.0 via 'sudo n 22.18.0'"
     exit 1
 fi
 
-REQUIRED="v20.18.2"
+REQUIRED="v22.18.0"
 if [[ "$NODE_VERSION" != "$REQUIRED" ]]; then
     echo "Warning: Current Node.js is $NODE_VERSION, expected $REQUIRED"
     echo "Switching to Node.js $REQUIRED via n..."
-    sudo n 20.18.2
+    sudo n 22.18.0
     if [[ $? -ne 0 ]]; then
         echo "Error: Node.js version switch failed"
         exit 1

@@ -8,6 +8,7 @@ import { MCPUserState, RefreshableProviderName, SettingsOfProvider } from '../..
 import { DisposableStore, IDisposable } from '../../../../../../../base/common/lifecycle.js'
 import { VoidSettingsState } from '../../../../../../../workbench/contrib/void/common/voidSettingsService.js'
 import { ColorScheme } from '../../../../../../../platform/theme/common/theme.js'
+import { VoidThemeDataProvider, getVoidThemeDataProvider, setVoidThemeDataProvider } from '../../../themeDataProvider.js'
 import { RefreshModelStateOfProvider } from '../../../../../../../workbench/contrib/void/common/refreshModelService.js'
 
 import { ServicesAccessor } from '../../../../../../../editor/browser/editorExtensions.js';
@@ -54,7 +55,11 @@ import { IExtensionManagementService } from '../../../../../../../platform/exten
 import { IMCPService } from '../../../../common/mcpService.js';
 import { IStorageService, StorageScope } from '../../../../../../../platform/storage/common/storage.js'
 import { OPT_OUT_KEY } from '../../../../common/storageKeys.js'
+import { IFileDialogService } from '../../../../../../../platform/dialogs/common/dialogs.js'
+import { IChatThreadStorageService } from '../../../../common/chatThreadStorageService.js'
+import { ISkillService } from '../../../../common/skillService.js'
 import { initDefaultLang } from './i18n.js'
+import { initMarkdownCache } from '../markdown/markdownCache.js'
 import { syncThreadsStateToStore, syncStreamStateToStore } from '../stores/syncService.js'
 
 
@@ -76,7 +81,8 @@ let refreshModelState: RefreshModelStateOfProvider
 const refreshModelStateListeners: Set<(s: RefreshModelStateOfProvider) => void> = new Set()
 const refreshModelProviderListeners: Set<(p: RefreshableProviderName, s: RefreshModelStateOfProvider) => void> = new Set()
 
-let colorThemeState: ColorScheme
+// 主题状态由 VoidThemeDataProvider 管理，不再使用模块级变量
+// 参考 VSCode 的 WebviewThemeDataProvider 模式
 const colorThemeStateListeners: Set<(s: ColorScheme) => void> = new Set()
 
 const ctrlKZoneStreamingStateListeners: Set<(diffareaid: number, s: boolean) => void> = new Set()
@@ -84,10 +90,41 @@ const commandBarURIStateListeners: Set<(uri: URI) => void> = new Set();
 const activeURIListeners: Set<(uri: URI | null) => void> = new Set();
 
 const mcpListeners: Set<() => void> = new Set()
+const skillListeners: Set<() => void> = new Set()
 
 // Track whether services have been registered globally (singleton pattern)
 let servicesRegistered = false
 let globalDisposables: IDisposable[] = []
+
+// 清理全局状态，允许下次重新注册服务
+// 当视图被移动或销毁时调用，解决 InstantiationService has been disposed 问题
+export const _unregisterServices = () => {
+	// Dispose 所有全局监听器
+	for (const disposable of globalDisposables) {
+		disposable.dispose()
+	}
+	globalDisposables = []
+
+	// 重置状态
+	servicesRegistered = false
+	reactAccessor_ = null
+
+	// 清理 VoidThemeDataProvider
+	setVoidThemeDataProvider(null as any)
+
+	// 清理所有监听器集合
+	chatThreadsStateListeners.clear()
+	chatThreadsStreamStateListeners.clear()
+	settingsStateListeners.clear()
+	refreshModelStateListeners.clear()
+	refreshModelProviderListeners.clear()
+	colorThemeStateListeners.clear()
+	ctrlKZoneStreamingStateListeners.clear()
+	commandBarURIStateListeners.clear()
+	activeURIListeners.clear()
+	mcpListeners.clear()
+	skillListeners.clear()
+}
 
 // must call this before you can use any of the hooks below
 // this should only be called ONCE! this is the only place you don't need to dispose onDidChange. If you use state.onDidChange anywhere else, make sure to dispose it!
@@ -109,9 +146,15 @@ export const _registerServices = (accessor: ServicesAccessor) => {
 		voidCommandBarService: accessor.get(IVoidCommandBarService),
 		modelService: accessor.get(IModelService),
 		mcpService: accessor.get(IMCPService),
+		skillService: accessor.get(ISkillService),
 	}
 
-	const { settingsStateService, chatThreadsStateService, refreshModelService, themeService, editCodeService, voidCommandBarService, modelService, mcpService } = stateServices
+	const { settingsStateService, chatThreadsStateService, refreshModelService, themeService, editCodeService, voidCommandBarService, modelService, mcpService, skillService } = stateServices
+
+	// 创建并注册 VoidThemeDataProvider（VSCode 风格的主题管理）
+	const themeDataProvider = new VoidThemeDataProvider(themeService)
+	setVoidThemeDataProvider(themeDataProvider)
+	globalDisposables.push(themeDataProvider)
 
 
 
@@ -144,10 +187,11 @@ export const _registerServices = (accessor: ServicesAccessor) => {
 
 	settingsState = settingsStateService.state
 	console.log('[services] Initial settingsState.globalSettings.defaultLang:', settingsState.globalSettings.defaultLang)
-	// 等待设置初始化完成后，再初始化默认语言设置（仅首次读取，不联动更新）
+	// 等待设置初始化完成后，再初始化默认语言设置和Markdown缓存设置（仅首次读取，不联动更新）
 	settingsStateService.waitForInitState.then(() => {
 		console.log('[services] waitForInitState resolved, defaultLang:', settingsStateService.state.globalSettings.defaultLang)
 		initDefaultLang(settingsStateService.state.globalSettings.defaultLang)
+		initMarkdownCache(settingsStateService.state.globalSettings.enableMarkdownCache)
 	})
 	globalDisposables.push(
 		settingsStateService.onDidChangeState(() => {
@@ -165,11 +209,10 @@ export const _registerServices = (accessor: ServicesAccessor) => {
 		})
 	)
 
-	colorThemeState = themeService.getColorTheme().type
+	// 使用 VoidThemeDataProvider 监听主题变化
 	globalDisposables.push(
-		themeService.onDidColorThemeChange(({ type }) => {
-			colorThemeState = type
-			colorThemeStateListeners.forEach(l => l(colorThemeState))
+		themeDataProvider.onThemeChanged((type) => {
+			colorThemeStateListeners.forEach(l => l(type))
 		})
 	)
 
@@ -196,6 +239,12 @@ export const _registerServices = (accessor: ServicesAccessor) => {
 	globalDisposables.push(
 		mcpService.onDidChangeState(() => {
 			mcpListeners.forEach(l => l())
+		})
+	)
+
+	globalDisposables.push(
+		skillService.onDidChangeState(() => {
+			skillListeners.forEach(l => l())
 		})
 	)
 
@@ -252,6 +301,9 @@ const getReactAccessor = (accessor: ServicesAccessor) => {
 		IMCPService: accessor.get(IMCPService),
 
 		IStorageService: accessor.get(IStorageService),
+		IFileDialogService: accessor.get(IFileDialogService),
+		IChatThreadStorageService: accessor.get(IChatThreadStorageService),
+		ISkillService: accessor.get(ISkillService),
 
 	} as const
 	return reactAccessor
@@ -280,9 +332,13 @@ export const useAccessor = () => {
 // -- state of services --
 
 export const useSettingsState = () => {
-	const [s, ss] = useState(settingsState)
+	// 使用函数初始化，确保获取最新值
+	const [s, ss] = useState(() => settingsState)
 	useEffect(() => {
-		ss(settingsState)
+		// 立即同步最新状态
+		if (settingsState !== undefined) {
+			ss(settingsState)
+		}
 		settingsStateListeners.add(ss)
 		return () => { settingsStateListeners.delete(ss) }
 	}, [ss])
@@ -290,9 +346,13 @@ export const useSettingsState = () => {
 }
 
 export const useChatThreadsState = () => {
-	const [s, ss] = useState(chatThreadsState)
+	// 使用函数初始化，确保获取最新值
+	const [s, ss] = useState(() => chatThreadsState)
 	useEffect(() => {
-		ss(chatThreadsState)
+		// 立即同步最新状态
+		if (chatThreadsState !== undefined) {
+			ss(chatThreadsState)
+		}
 		chatThreadsStateListeners.add(ss)
 		return () => { chatThreadsStateListeners.delete(ss) }
 	}, [ss])
@@ -328,9 +388,12 @@ export const useChatThreadsStreamState = (threadId: string) => {
 }
 
 export const useFullChatThreadsStreamState = () => {
-	const [s, ss] = useState(chatThreadsStreamState)
+	// 使用函数初始化，确保获取最新值
+	const [s, ss] = useState(() => chatThreadsStreamState)
 	useEffect(() => {
-		ss(chatThreadsStreamState)
+		if (chatThreadsStreamState !== undefined) {
+			ss(chatThreadsStreamState)
+		}
 		const listener = () => { ss(chatThreadsStreamState) }
 		chatThreadsStreamStateListeners.add(listener)
 		return () => { chatThreadsStreamStateListeners.delete(listener) }
@@ -341,9 +404,12 @@ export const useFullChatThreadsStreamState = () => {
 
 
 export const useRefreshModelState = () => {
-	const [s, ss] = useState(refreshModelState)
+	// 使用函数初始化，确保获取最新值
+	const [s, ss] = useState(() => refreshModelState)
 	useEffect(() => {
-		ss(refreshModelState)
+		if (refreshModelState !== undefined) {
+			ss(refreshModelState)
+		}
 		refreshModelStateListeners.add(ss)
 		return () => { refreshModelStateListeners.delete(ss) }
 	}, [ss])
@@ -366,9 +432,21 @@ export const useCtrlKZoneStreamingState = (listener: (diffareaid: number, s: boo
 }
 
 export const useIsDark = () => {
-	const [s, ss] = useState(colorThemeState)
+	// 使用 VoidThemeDataProvider 获取主题状态（VSCode 风格）
+	// 使用函数初始化，确保获取最新值
+	const [s, ss] = useState<ColorScheme>(() => {
+		const themeDataProvider = getVoidThemeDataProvider()
+		return themeDataProvider?.getThemeType() ?? ColorScheme.DARK
+	})
+
 	useEffect(() => {
-		ss(colorThemeState)
+		// 立即同步最新状态
+		const themeDataProvider = getVoidThemeDataProvider()
+		const currentType = themeDataProvider?.getThemeType()
+		if (currentType !== undefined) {
+			ss(currentType)
+		}
+
 		colorThemeStateListeners.add(ss)
 		return () => { colorThemeStateListeners.delete(ss) }
 	}, [ss])
@@ -426,6 +504,18 @@ export const useMCPServiceState = () => {
 	return s
 }
 
+
+export const useSkillServiceState = () => {
+	const accessor = useAccessor()
+	const skillService = accessor.get('ISkillService')
+	const [s, ss] = useState(skillService.state)
+	useEffect(() => {
+		const listener = () => { ss(skillService.state) }
+		skillListeners.add(listener);
+		return () => { skillListeners.delete(listener) };
+	}, []);
+	return s
+}
 
 
 export const useIsOptedOut = () => {

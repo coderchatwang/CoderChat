@@ -17,8 +17,8 @@ Write-Host "Success: fnm environment configured" -ForegroundColor Green
 Write-Host ""
 
 # Step 2: Switch to specified Node.js version
-Write-Host "[2/4] Switching to Node.js v20.18.2..." -ForegroundColor Yellow
-fnm use 20.18.2
+Write-Host "[2/4] Switching to Node.js v22.18.0..." -ForegroundColor Yellow
+fnm use 22.18.0
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Error: Node.js version switch failed" -ForegroundColor Red
     exit 1
@@ -33,14 +33,17 @@ Write-Host ""
 Write-Host "[3/4] Starting watch modes..." -ForegroundColor Yellow
 Write-Host ""
 
-# Start watch (TypeScript compilation) in new window
-Write-Host "Starting TypeScript watch (npm run watch)..." -ForegroundColor Cyan
-Start-Process powershell -ArgumentList "-NoExit", "-Command", "fnm env --use-on-cd | Out-String | Invoke-Expression; fnm use 20.18.2; Write-Host 'TypeScript Watch Mode' -ForegroundColor Green; Write-Host '================================' -ForegroundColor Cyan; Write-Host ''; npm run watch" -WindowStyle Normal
-Start-Sleep -Seconds 2
-
-# Start watchreact (React compilation) in new window
+# Start watchreact (React compilation) in new window - MUST start first
 Write-Host "Starting React watch (npm run watchreact)..." -ForegroundColor Cyan
-Start-Process powershell -ArgumentList "-NoExit", "-Command", "fnm env --use-on-cd | Out-String | Invoke-Expression; fnm use 20.18.2; Write-Host 'React Watch Mode' -ForegroundColor Green; Write-Host '================================' -ForegroundColor Cyan; Write-Host ''; npm run watchreact" -WindowStyle Normal
+Start-Process powershell -ArgumentList "-NoExit", "-Command", "fnm env --use-on-cd | Out-String | Invoke-Expression; fnm use 22.18.0; Write-Host 'React Watch Mode' -ForegroundColor Green; Write-Host '================================' -ForegroundColor Cyan; Write-Host ''; npm run watchreact" -WindowStyle Normal
+Write-Host "React watch started, waiting 60 seconds for initial build..." -ForegroundColor Gray
+
+# Wait 60 seconds for React to complete initial build before starting TypeScript watch
+Start-Sleep -Seconds 60
+
+# Start watch (TypeScript compilation) in new window - starts AFTER React
+Write-Host "Starting TypeScript watch (npm run watch)..." -ForegroundColor Cyan
+Start-Process powershell -ArgumentList "-NoExit", "-Command", "fnm env --use-on-cd | Out-String | Invoke-Expression; fnm use 22.18.0; Write-Host 'TypeScript Watch Mode' -ForegroundColor Green; Write-Host '================================' -ForegroundColor Cyan; Write-Host ''; npm run watch" -WindowStyle Normal
 Start-Sleep -Seconds 2
 
 Write-Host ""

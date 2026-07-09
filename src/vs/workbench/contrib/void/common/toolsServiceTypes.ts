@@ -35,7 +35,7 @@ export type ToolApprovalType = NonNullable<(typeof approvalTypeOfBuiltinToolName
 
 
 export const toolApprovalTypes = new Set<ToolApprovalType>([
-	...Object.values(approvalTypeOfBuiltinToolName),
+	...Object.values(approvalTypeOfBuiltinToolName).filter(t => t !== 'questions'),
 	'MCP tools',
 ])
 
@@ -75,10 +75,14 @@ export type BuiltinToolCallParams = {
 	// ---
 	'ask_user_question': { questions: AskUserQuestionItem[], answers: Record<string, string> },
 	// ---
-	'web_fetch': { url: string, prompt: string },
+	'web_fetch': { url: string, prompt: string, stripHtml: boolean },
 	// ---
 	'todo_write': { todos: TodoItem[] },
 	'todo_read': {},
+	// ---
+	'sleep_wait': { seconds: number },
+	// ---
+	'skill': { skill: string },
 }
 
 // Ask user question types
@@ -122,6 +126,10 @@ export type BuiltinToolResultType = {
 	// ---
 	'todo_write': { todos: TodoItem[] },
 	'todo_read': { todos: TodoItem[] },
+	// ---
+	'sleep_wait': { seconds: number, skipped: boolean },
+	// ---
+	'skill': { skillName: string, skillPath: string, skillContent: string, dirTree: { children: ShallowDirectoryItem[] | null, hasNextPage: boolean, hasPrevPage: boolean, itemsRemaining: number } },
 }
 
 

@@ -14,6 +14,7 @@ import { Event } from '../../../../base/common/event.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { IVoidSettingsService } from './voidSettingsService.js';
 import { IMCPService } from './mcpService.js';
+import { ISkillService } from './skillService.js';
 
 // calls channel to implement features
 export const ILLMMessageService = createDecorator<ILLMMessageService>('llmMessageService');
@@ -64,6 +65,7 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 		@IVoidSettingsService private readonly voidSettingsService: IVoidSettingsService,
 		// @INotificationService private readonly notificationService: INotificationService,
 		@IMCPService private readonly mcpService: IMCPService,
+		@ISkillService private readonly skillService: ISkillService,
 	) {
 		super()
 
@@ -123,6 +125,7 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 		const { settingsOfProvider, } = this.voidSettingsService.state
 
 		const mcpTools = this.mcpService.getMCPTools()
+		const skills = this.skillService.getSkills()
 
 		// add state for request id
 		const requestId = generateUuid();
@@ -139,6 +142,7 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 			settingsOfProvider,
 			modelSelection,
 			mcpTools,
+			skills,
 		} satisfies MainSendLLMMessageParams);
 
 		return requestId

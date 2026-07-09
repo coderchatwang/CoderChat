@@ -152,7 +152,10 @@ export class ThreadedBackgroundTokenizerFactory implements IDisposable {
 				// However, the worker might still be sending tokens for that model,
 				// so we ignore the event when there is no controller.
 				if (controller) {
-					controller.setTokensAndStates(controllerId, versionId, tokens, lineEndStateDeltas);
+					const buffer: ArrayBuffer = typeof SharedArrayBuffer !== 'undefined' && tokens.buffer instanceof SharedArrayBuffer
+						? new Uint8Array(tokens).buffer
+						: tokens.buffer.slice(0) as ArrayBuffer;
+					controller.setTokensAndStates(controllerId, versionId, buffer, lineEndStateDeltas);
 				}
 			},
 			$reportTokenizationTime: (timeMs: number, languageId: string, sourceExtensionId: string | undefined, lineLength: number, isRandomSample: boolean): void => {

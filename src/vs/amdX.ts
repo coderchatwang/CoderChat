@@ -33,9 +33,7 @@ class AMDModuleImporter {
 
 	private readonly _defineCalls: DefineCall[] = [];
 	private _state = AMDModuleImporterState.Uninitialized;
-	private _amdPolicy: Pick<TrustedTypePolicy<{
-		createScriptURL(value: string): string;
-	}>, 'name' | 'createScriptURL'> | undefined;
+	private _amdPolicy: Pick<TrustedTypePolicy, 'name' | 'createScriptURL'> | undefined;
 
 	constructor() { }
 
@@ -71,7 +69,7 @@ class AMDModuleImporter {
 
 		if (this._isRenderer) {
 			this._amdPolicy = (globalThis as any)._VSCODE_WEB_PACKAGE_TTP ?? window.trustedTypes?.createPolicy('amdLoader', {
-				createScriptURL(value) {
+				createScriptURL(value: string) {
 					if (value.startsWith(window.location.origin)) {
 						return value;
 					}

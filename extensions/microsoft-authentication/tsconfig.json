@@ -1,24 +1,20 @@
 {
 	"extends": "../tsconfig.base.json",
 	"compilerOptions": {
-		"baseUrl": ".",
-		"experimentalDecorators": true,
-		"module": "commonjs",
-		"moduleResolution": "node",
+		"rootDir": "./src",
+		"outDir": "./out",
 		"noFallthroughCasesInSwitch": true,
 		"noUnusedLocals": false,
-		"outDir": "dist",
-		"resolveJsonModule": true,
-		"rootDir": "src",
 		"skipLibCheck": true,
-		"sourceMap": true,
-		"lib": [
-			"WebWorker"
+		"types": [
+			"node",
+			"mocha"
+		],
+		"typeRoots": [
+			"./node_modules/@types",
+			"../../node_modules/@types"
 		]
 	},
-	"exclude": [
-		"node_modules"
-	],
 	"include": [
 		"src/**/*",
 		"../../src/vscode-dts/vscode.d.ts",
