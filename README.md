@@ -58,6 +58,7 @@ Unfortunately, the Void project has been discontinued. Based on Void and VS Code
 
 | Feature | CoderChat | Void |
 |---------|-----------|------|
+| Unattended Mode | ✔️ | ❌ |
 | Skill Support | ✔️ | ❌ |
 | Stable MCP Support | ✔️ | ❌ |
 | Session Export/Import Sharing | ✔️ | ❌ |
@@ -138,6 +139,86 @@ Example configuration for a vision-capable model (e.g., Kimi-K2.5):
   }
 }
 ```
+## Unattended Mode
+
+Unattended Mode allows CoderChat to execute tasks automatically in the background without manual intervention. This feature is suitable for batch processing, automated workflows, and similar scenarios.
+
+### Simple Mode
+
+Simple Mode provides an intuitive interface for quickly configuring common tasks:
+
+<div align="center">
+	<img
+		src="https://github.com/coderchatwang/CoderChat/releases/download/1.0.0/unattended_simple.png"
+	 	alt="Unattended Mode - Simple Mode"
+	/>
+</div>
+
+### JSON Mode
+
+JSON Mode offers more flexible configuration options for advanced users who need fine-grained control:
+
+<div align="center">
+	<img
+		src="https://github.com/coderchatwang/CoderChat/releases/download/1.0.0/unattended_json.png"
+	 	alt="Unattended Mode - JSON Mode"
+	/>
+</div>
+
+JSON Mode supports two formats:
+
+**1. Simple Array Format** (uses default configuration):
+```json
+[
+  "Fix the bug in authentication module",
+  "Add unit tests for user service",
+  "Update documentation for API endpoints"
+]
+```
+
+**2. Full Object Format** (complete control over all options):
+```json
+{
+  "taskGoals": [
+    {
+      "goal": "Refactor the database connection module",
+      "goalTemplateType": 0,
+      "chatMode": "agent",
+      "openNewChatView": true,
+      "goalMessageSendTimesLimit": 10,
+      "modelSelection": {
+        "providerName": "openai",
+        "modelName": "gpt-4"
+      }
+    }
+  ],
+  "restartOnError": true
+}
+```
+
+#### Configuration Fields
+
+**Root Level Fields:**
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `taskGoals` | `TaskGoalItem[]` | Yes | - | Array of task goals to execute in sequence |
+| `restartOnError` | `boolean` | No | `false` | Whether to open a new window and continue on error |
+
+**TaskGoalItem Fields:**
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `goal` | `string` | Yes | - | Goal description/prompt to execute |
+| `goalTemplateType` | `0 \| 1 \| 2` | No | `0` | Template type: `0` = completion check, `1` = post-command, `2` = custom (use goal directly) |
+| `chatMode` | `"gather" \| "agent" \| "plan"` | No | `"agent"` | Chat mode for the goal execution |
+| `openNewChatView` | `boolean` | No | `false` | Whether to open a new chat window for this goal |
+| `goalMessageSendTimesLimit` | `number` | No | `11` (type 0) / `1` (type 1/2) | Maximum message send count before marking goal complete |
+| `goalCheckTemplate` | `string` | No | Default template | Custom goal check template (must contain `{0}` placeholder) |
+| `goalNoTemplateSend` | `boolean` | No | `false` | Send raw goal first before check template |
+| `modelSelection` | `object \| null` | No | Default model | Model configuration for this specific goal |
+| `modelSelection.providerName` | `string` | No | - | Provider name (e.g., `"openai"`, `"anthropic"`) |
+| `modelSelection.modelName` | `string` | Yes* | - | Model name to use (*required if `modelSelection` is specified) |
 
 ## Important Notes
 
