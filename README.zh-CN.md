@@ -54,6 +54,7 @@ CoderChat 基于 Void 开发，是一个增强版本。本仓库保留了 Void �
 很遗憾Void项目已经停更，我们在Void和VsCode的基础上做了大量更新，并且还将继续不断优化更新。
 | 支持| CoderChat  | Void  |
 |------|----------------|-----------|
+| 无人值守模式 | ✔️ | ❌ |
 | Skill技能支持 | ✔️ | ❌ |
 | 稳定的MCP支持 | ✔️ | ❌ |
 | 会话导出导入分享 | ✔️ | ❌ |
@@ -135,6 +136,87 @@ CoderChat 基于 Void 开发，是一个增强版本。本仓库保留了 Void �
   }
 }
 ```
+
+## 无人值守模式（Unattended Mode）
+
+无人值守模式允许 CoderChat 在后台自动执行任务，无需人工干预。该功能适用于批量处理、自动化工作流等场景。
+
+### 简单模式
+
+简单模式提供直观的界面，适合快速配置常用任务：
+
+<div align="center">
+	<img
+		src="https://github.com/coderchatwang/CoderChat/releases/download/1.0.0/unattended_simple.png"
+	 	alt="无人值守模式 - 简单模式"
+	/>
+</div>
+
+### JSON 模式
+
+JSON 模式提供更灵活的配置选项，适合高级用户进行精细化控制：
+
+<div align="center">
+	<img
+		src="https://github.com/coderchatwang/CoderChat/releases/download/1.0.0/unattended_json.png"
+	 	alt="无人值守模式 - JSON 模式"
+	/>
+</div>
+
+JSON 模式支持两种格式：
+
+**1. 简单数组格式**（使用默认配置）：
+```json
+[
+  "修复认证模块中的 bug",
+  "为用户服务添加单元测试",
+  "更新 API 端点的文档"
+]
+```
+
+**2. 完整对象格式**（完全控制所有选项）：
+```json
+{
+  "taskGoals": [
+    {
+      "goal": "重构数据库连接模块",
+      "goalTemplateType": 0,
+      "chatMode": "agent",
+      "openNewChatView": true,
+      "goalMessageSendTimesLimit": 10,
+      "modelSelection": {
+        "providerName": "openai",
+        "modelName": "gpt-4"
+      }
+    }
+  ],
+  "restartOnError": true
+}
+```
+
+#### 配置字段说明
+
+**根级别字段：**
+
+| 字段 | 类型 | 必填 | 默认值 | 说明 |
+|-------|------|----------|---------|-------------|
+| `taskGoals` | `TaskGoalItem[]` | 是 | - | 按顺序执行的目标任务数组 |
+| `restartOnError` | `boolean` | 否 | `false` | 出错时是否新开窗口继续执行 |
+
+**TaskGoalItem 字段：**
+
+| 字段 | 类型 | 必填 | 默认值 | 说明 |
+|-------|------|----------|---------|-------------|
+| `goal` | `string` | 是 | - | 目标描述/提示词 |
+| `goalTemplateType` | `0 \| 1 \| 2` | 否 | `0` | 模板类型：`0` = 完成检查，`1` = 后置命令，`2` = 自定义（直接使用 goal） |
+| `chatMode` | `"gather" \| "agent" \| "plan"` | 否 | `"agent"` | 目标执行的对话模式 |
+| `openNewChatView` | `boolean` | 否 | `false` | 是否为此目标打开新的聊天窗口 |
+| `goalMessageSendTimesLimit` | `number` | 否 | `11`（类型 0）/ `1`（类型 1/2） | 消息发送次数上限，达到后标记目标完成 |
+| `goalCheckTemplate` | `string` | 否 | 默认模板 | 自定义目标检查模板（必须包含 `{0}` 占位符） |
+| `goalNoTemplateSend` | `boolean` | 否 | `false` | 是否在发送检查模板前先发送原始 goal |
+| `modelSelection` | `object \| null` | 否 | 默认模型 | 此目标专用的模型配置 |
+| `modelSelection.providerName` | `string` | 否 | - | 提供商名称（如 `"openai"`、`"anthropic"`） |
+| `modelSelection.modelName` | `string` | 是* | - | 要使用的模型名称（*如果指定了 `modelSelection` 则必填） |
 
 ## 重要说明
 
